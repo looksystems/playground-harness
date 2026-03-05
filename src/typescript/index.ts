@@ -6,3 +6,6 @@ export { MessageBus, ParsedEvent, EventHandler } from "./message-bus.js";
 export { EventStreamParser, EventType, StreamConfig, EventCallback } from "./event-stream-parser.js";
 export { EmitsEvents } from "./emits-events.js";
 export { StandardAgent } from "./standard-agent.js";
+export { HasShell } from "./has-shell.js";
+export { VirtualFS } from "./virtual-fs.js";
+export { Shell, ShellRegistry, ExecResult } from "./shell.js";
