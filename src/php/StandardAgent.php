@@ -10,4 +10,5 @@ class StandardAgent extends BaseAgent
     use HasMiddleware;
     use UsesTools;
     use EmitsEvents;
+    use HasShell;
 }
