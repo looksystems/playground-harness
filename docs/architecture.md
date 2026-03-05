@@ -41,12 +41,18 @@ classDiagram
         #_resolve_active_events(events)
         #_build_event_prompt(event_types)
     }
+    class HasShell {
+        +fs: VirtualFS
+        +shell: Shell
+        +exec(command)
+    }
     class StandardAgent
     StandardAgent --|> BaseAgent
     StandardAgent ..|> HasHooks
     StandardAgent ..|> HasMiddleware
     StandardAgent ..|> UsesTools
     StandardAgent ..|> EmitsEvents
+    StandardAgent ..|> HasShell
 ```
 
 Solid lines denote inheritance; dashed lines denote mixin/trait implementation.
@@ -116,6 +122,57 @@ stateDiagram-v2
 | **MessageBus** | Pub/sub event routing: topic-based subscription, wildcard support, cycle detection via depth counter |
 | **ParsedEvent** | Data object: carries event type, parsed data dict, optional async stream iterator, optional raw YAML |
 | **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class |
+| **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
+| **Shell** | Command interpreter: 23 built-in commands over a VirtualFS, pipes, redirects, command chaining, variable expansion |
+| **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
+| **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()` |
+
+---
+
+## Virtual Shell
+
+The virtual shell provides agents with a single `exec` tool for exploring context mounted as files. Instead of building specialized tools for each query pattern, you mount data as files and let the model use Unix commands it already understands.
+
+### Component Relationships
+
+```mermaid
+classDiagram
+    class VirtualFS {
+        +write(path, content)
+        +read(path)
+        +write_lazy(path, provider)
+        +exists(path)
+        +listdir(path)
+        +find(root, pattern)
+        +clone()
+    }
+    class Shell {
+        +exec(command) ExecResult
+        +fs: VirtualFS
+        +cwd: string
+        +env: dict
+        +clone()
+    }
+    class ShellRegistry {
+        +register(name, shell)$
+        +get(name) Shell$
+        +has(name) bool$
+        +reset()$
+    }
+    class HasShell {
+        +fs: VirtualFS
+        +shell: Shell
+        +exec(command)
+    }
+    Shell --> VirtualFS : owns
+    ShellRegistry --> Shell : stores templates
+    HasShell --> Shell : owns instance
+    HasShell ..> ShellRegistry : clones from
+```
+
+### Security Model
+
+All commands are pure functions operating on the in-memory VirtualFS. No real shell, filesystem, network, or process spawning is involved. See [ADR 0014](adr/0014-pure-emulation-security-model.md) for details.
 
 ---
 

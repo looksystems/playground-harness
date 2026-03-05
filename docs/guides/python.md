@@ -147,3 +147,49 @@ Handlers receive the bus as their second argument and can publish new events. Cy
 - **Lazy initialization** -- Mixins use `hasattr` checks and `__init_has_X__()` methods to avoid MRO `__init__` conflicts.
 - **Async throughout** -- All agent methods are async. Both sync and async callbacks are supported; the framework checks via `inspect.isawaitable`.
 - **asyncio.Queue for streaming** -- Streaming events use an `asyncio.Queue`. The parser pushes lines and the consumer pulls them via `AsyncIterator`.
+
+## Virtual Shell
+
+The `HasShell` mixin provides an in-memory virtual filesystem and shell interpreter. Mount context as files and let the agent explore with standard Unix commands.
+
+### Standalone usage
+
+```python
+from virtual_fs import VirtualFS
+from shell import Shell
+
+fs = VirtualFS()
+fs.write("/data/users.json", json.dumps(users))
+shell = Shell(fs)
+result = shell.exec("cat /data/users.json | jq '.[].name' | sort")
+print(result.stdout)
+```
+
+### With an agent
+
+```python
+class MyAgent(BaseAgent, UsesTools, HasShell):
+    pass
+
+agent = MyAgent(model="anthropic/claude-sonnet-4-20250514")
+agent.fs.write("/data/schema.yaml", schema_content)
+response = await agent.run("What tables reference user_id?")
+```
+
+### Shell registry
+
+```python
+from shell import ShellRegistry, Shell
+from virtual_fs import VirtualFS
+
+ShellRegistry.register("data-explorer", Shell(
+    fs=VirtualFS({"/schema/users.yaml": schema}),
+    allowed_commands={"cat", "grep", "find", "ls", "jq", "head", "tail", "wc"},
+))
+
+# Each agent gets its own clone
+agent = MyAgent(model="...", shell="data-explorer")
+agent.fs.write("/data/results.json", results)  # only this agent sees this
+```
+
+Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) for architecture details.

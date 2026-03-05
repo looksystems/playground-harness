@@ -162,3 +162,47 @@ type Constructor<T = {}> = new (...args: any[]) => T;
 **createChannel().** A custom async iterable primitive for streaming. Push values in, consume via `for await`, and close to signal end of stream.
 
 **Promise.allSettled.** Hook dispatch runs all callbacks concurrently, collecting errors without short-circuiting. This ensures one failing hook does not prevent others from executing.
+
+## Virtual Shell
+
+The `HasShell` mixin provides an in-memory virtual filesystem and shell interpreter. Mount context as files and let the agent explore with standard Unix commands.
+
+### Standalone usage
+
+```typescript
+import { VirtualFS } from "./virtual-fs";
+import { Shell } from "./shell";
+
+const fs = new VirtualFS();
+fs.write("/data/users.json", JSON.stringify(users));
+const shell = new Shell(fs);
+const result = shell.exec("cat /data/users.json | jq '.[].name' | sort");
+console.log(result.stdout);
+```
+
+### With an agent
+
+```typescript
+const MyAgent = HasShell(UsesTools(BaseAgent));
+
+const agent = new MyAgent({ model: "gpt-4o" });
+agent.fs.write("/data/schema.yaml", schemaContent);
+const response = await agent.run("What tables reference user_id?");
+```
+
+### Shell registry
+
+```typescript
+import { ShellRegistry, Shell } from "./shell";
+import { VirtualFS } from "./virtual-fs";
+
+ShellRegistry.register("data-explorer", new Shell(
+  new VirtualFS({ "/schema/users.yaml": schema }),
+  { allowedCommands: new Set(["cat", "grep", "find", "ls", "jq", "head", "tail", "wc"]) },
+));
+
+const agent = new MyAgent({ model: "gpt-4o", shell: "data-explorer" });
+agent.fs.write("/data/results.json", results);  // only this agent sees this
+```
+
+TypeScript lazy file providers are async (returning `Promise<string>`), allowing providers that fetch from APIs or databases. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) for architecture details.

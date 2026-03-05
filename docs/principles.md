@@ -46,7 +46,15 @@ Streaming events follow a structural convention: the streaming field must be the
 
 No special syntax, markers, or schema annotations are needed. Field ordering alone signals intent. This keeps the event definition format clean and makes streaming a property of how you structure your event rather than a separate system to configure.
 
-## 6. Cycle-Safe Event Propagation
+## 6. Filesystem as Interface
+
+Instead of building a tool for every query pattern, mount context as files and let the model explore with standard Unix commands. This principle — inspired by Vercel's just-bash — leverages the fact that LLMs already understand `grep`, `cat`, `find`, and `jq` deeply.
+
+The virtual shell provides a single `exec` tool backed by an in-memory filesystem. The model decides how to navigate and extract information using shell commands it already knows. This approach produces better results than many specialized tools because it gives the model a familiar, composable interface rather than a fixed set of query patterns.
+
+The virtual filesystem and shell interpreter are pure emulation — no real shell or filesystem is ever accessed. Every command is a function in the host language operating on in-memory data structures. This provides the full power of shell-based exploration without any security risk.
+
+## 7. Cycle-Safe Event Propagation
 
 The `MessageBus` uses a depth counter to prevent infinite recursion when event handlers publish new events. Each nested publish increments the counter; when it exceeds the configured maximum (default: 10), the event is silently dropped and a warning is logged.
 

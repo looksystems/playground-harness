@@ -19,6 +19,9 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
 | **Test Count** | 47 | 44 | 44 (82 assertions) |
+| **VFS Content Types** | `str \| bytes` | `string` only | `string` only |
+| **Lazy File Providers** | Synchronous callables | Async (returns `Promise<string>`) | Synchronous closures |
+| **Shell Registry** | Global singleton (module-level) | Global singleton (module-level) | Global singleton (static class) |
 
 ## Notable Differences
 
@@ -57,3 +60,13 @@ Python uses litellm, which provides a unified interface across multiple LLM prov
 TypeScript uses the OpenAI SDK directly. This gives idiomatic access to OpenAI's API (including streaming via `stream: true`) but ties the implementation to OpenAI-compatible endpoints.
 
 PHP uses Guzzle HTTP for raw API calls, constructing request bodies and parsing responses manually. This gives full control over the HTTP layer and avoids depending on a provider-specific SDK, but requires the implementation to handle request construction, error mapping, and response parsing itself.
+
+### 6. Virtual Shell
+
+The virtual shell implementation is nearly identical across all three languages — the same 23 commands, same pipe/redirect/chaining logic, same VirtualFS storage model. The differences are minor:
+
+Python's VirtualFS supports `str | bytes` content, allowing binary files (images, protobuf). TypeScript and PHP are string-only; binary content would need to be base64-encoded.
+
+TypeScript's lazy file providers are async (returning `Promise<string>`) because the VFS `read()` method is async. This allows lazy providers to fetch from APIs or databases. Python and PHP lazy providers are synchronous callables.
+
+The `HasShell` mixin follows the same language-specific patterns as other mixins: Python multiple inheritance, TypeScript function-based mixin, PHP native trait. In all three, it auto-registers the `exec` tool when `UsesTools` is also composed, and works independently for programmatic use when it isn't.

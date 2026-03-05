@@ -193,3 +193,51 @@ with a default maximum of 10 (configurable).
   yaml extension or the `symfony/yaml` dependency.
 - **String-backed enum.** `HookEvent` is `enum HookEvent: string` -- PHP's
   native typed enumeration.
+
+## Virtual Shell
+
+The `HasShell` trait provides an in-memory virtual filesystem and shell interpreter. Mount context as files and let the agent explore with standard Unix commands.
+
+### Standalone usage
+
+```php
+use AgentHarness\VirtualFS;
+use AgentHarness\Shell;
+
+$fs = new VirtualFS();
+$fs->write('/data/users.json', json_encode($users));
+$shell = new Shell($fs);
+$result = $shell->exec('cat /data/users.json | jq ".[].name" | sort');
+echo $result->stdout;
+```
+
+### With an agent
+
+```php
+class MyAgent extends BaseAgent {
+    use UsesTools;
+    use HasShell;
+}
+
+$agent = new MyAgent(model: 'gpt-4o');
+$agent->fs()->write('/data/schema.yaml', $schemaContent);
+$result = $agent->run('What tables reference user_id?');
+```
+
+### Shell registry
+
+```php
+use AgentHarness\ShellRegistry;
+use AgentHarness\Shell;
+use AgentHarness\VirtualFS;
+
+ShellRegistry::register('data-explorer', new Shell(
+    fs: new VirtualFS(['/schema/users.yaml' => $schema]),
+    allowedCommands: ['cat', 'grep', 'find', 'ls', 'jq', 'head', 'tail', 'wc'],
+));
+
+$agent = new MyAgent(model: 'gpt-4o', shell: 'data-explorer');
+$agent->fs()->write('/data/results.json', $results);  // only this agent sees this
+```
+
+See [ADR 0012](../adr/0012-virtual-shell-architecture.md) for architecture details.

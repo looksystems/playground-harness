@@ -6,12 +6,13 @@ Agent Harness provides a small set of well-defined building blocks that can be m
 
 ## Key Capabilities
 
-- **Trait/mixin composition** — Mix and match agent capabilities (hooks, middleware, tools, events) via language-native composition patterns.
+- **Trait/mixin composition** — Mix and match agent capabilities (hooks, middleware, tools, events, shell) via language-native composition patterns.
 - **Lifecycle hooks** — 10 hook events covering the full agent run cycle: `run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`.
 - **Middleware pipeline** — Sequential pre/post processing of messages with ordered, composable middleware.
 - **Tool registration** — Declarative tool definitions with automatic schema generation.
 - **Event emission** — The LLM emits structured YAML events inline in text, which are parsed and routed through a message bus.
 - **Streaming events** — Configurable buffered or streaming event delivery.
+- **Virtual shell** — In-memory filesystem and shell interpreter giving agents a single `exec` tool for context exploration via standard Unix commands. Pure emulation with no real shell or filesystem access.
 
 ## Architecture Overview
 
@@ -22,11 +23,15 @@ graph TD
     SA --> HM[HasMiddleware]
     SA --> UT[UsesTools]
     SA --> EE[EmitsEvents]
+    SA --> HS[HasShell]
     EE --> ESP[EventStreamParser]
     EE --> MB[MessageBus]
+    HS --> SH[Shell]
+    HS --> SR[ShellRegistry]
+    SH --> VFS[VirtualFS]
 ```
 
-`StandardAgent` composes all available mixins on top of `BaseAgent`. Each mixin is independent and can be applied selectively. `EmitsEvents` relies on an `EventStreamParser` to extract YAML events from LLM output and a `MessageBus` to route them to subscribers.
+`StandardAgent` composes all available mixins on top of `BaseAgent`. Each mixin is independent and can be applied selectively. `EmitsEvents` relies on an `EventStreamParser` to extract YAML events from LLM output and a `MessageBus` to route them to subscribers. `HasShell` provides an in-memory virtual filesystem and shell interpreter, auto-registering an `exec` tool when `UsesTools` is also composed.
 
 ## Supported Languages
 
