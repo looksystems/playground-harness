@@ -10,7 +10,7 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
-class HookEvent(Enum):
+class HookEvent(str, Enum):
     RUN_START = "run_start"
     RUN_END = "run_end"
     LLM_REQUEST = "llm_request"
@@ -23,8 +23,8 @@ class HookEvent(Enum):
     ERROR = "error"
 
 
-async def _call_fn(fn: Callable, *args: Any, **kwargs: Any) -> Any:
-    result = fn(*args, **kwargs)
+async def _call_fn(fn: Callable, *args: Any) -> Any:
+    result = fn(*args)
     if inspect.isawaitable(result):
         return await result
     return result
