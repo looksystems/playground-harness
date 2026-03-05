@@ -19,4 +19,4 @@ A lightweight, composable framework for building LLM-powered agents. Implemented
 
 ### Architecture Decision Records
 
-Design decisions are documented in [docs/adr/](docs/adr/).
+Design decisions are documented in [docs/adr/](docs/adr/README.md).
