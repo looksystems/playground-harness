@@ -44,3 +44,23 @@ class TestIntegration:
 
         asyncio.run(agent._emit(HookEvent.RUN_START))
         assert hook_log == ["start"]
+
+    def test_standard_agent_with_shell(self):
+        agent = StandardAgent(model="gpt-4")
+
+        # Shell is available via lazy init
+        assert agent.shell is not None
+        assert agent.fs is not None
+
+        # Can write files and exec commands
+        agent.fs.write("/data/test.txt", "hello world\n")
+        result = agent.exec("cat /data/test.txt")
+        assert result.stdout == "hello world\n"
+
+        # exec tool is auto-registered (StandardAgent includes both UsesTools and HasShell)
+        assert "exec" in agent._tools
+
+        # Pipes work
+        agent.fs.write("/data/nums.txt", "3\n1\n2\n")
+        result = agent.exec("cat /data/nums.txt | sort")
+        assert result.stdout == "1\n2\n3\n"

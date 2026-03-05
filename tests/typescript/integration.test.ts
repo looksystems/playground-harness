@@ -49,4 +49,25 @@ describe("Integration", () => {
     await agent._emit(HookEvent.RUN_START);
     expect(hookLog).toEqual(["start"]);
   });
+
+  it("standard agent with shell", () => {
+    const agent = new StandardAgent({ model: "gpt-4" });
+
+    // Shell is available via lazy init
+    expect(agent.shell).toBeDefined();
+    expect(agent.fs).toBeDefined();
+
+    // Can write files and exec commands
+    agent.fs.write("/data/test.txt", "hello world\n");
+    const result = agent.exec("cat /data/test.txt");
+    expect(result.stdout).toBe("hello world\n");
+
+    // exec tool is auto-registered
+    expect(agent._tools.has("exec")).toBe(true);
+
+    // Pipes work
+    agent.fs.write("/data/nums.txt", "3\n1\n2\n");
+    const result2 = agent.exec("cat /data/nums.txt | sort");
+    expect(result2.stdout).toBe("1\n2\n3\n");
+  });
 });

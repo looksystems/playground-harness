@@ -61,4 +61,28 @@ class IntegrationTest extends TestCase
         $agent->emit(HookEvent::RunStart);
         $this->assertSame(['start'], $hookLog);
     }
+
+    public function testStandardAgentWithShell(): void
+    {
+        $agent = new StandardAgent(model: 'gpt-4');
+
+        // Shell is available via lazy init
+        $this->assertNotNull($agent->shell());
+        $this->assertNotNull($agent->fs());
+
+        // Can write files and exec commands
+        $agent->fs()->write('/data/test.txt', "hello world\n");
+        $result = $agent->execCommand('cat /data/test.txt');
+        $this->assertSame("hello world\n", $result->stdout);
+
+        // exec tool is auto-registered
+        $schema = $agent->toolsSchema();
+        $toolNames = array_column(array_column($schema, 'function'), 'name');
+        $this->assertContains('exec', $toolNames);
+
+        // Pipes work
+        $agent->fs()->write('/data/nums.txt', "3\n1\n2\n");
+        $result2 = $agent->execCommand('cat /data/nums.txt | sort');
+        $this->assertSame("1\n2\n3\n", $result2->stdout);
+    }
 }
