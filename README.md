@@ -15,7 +15,7 @@ The **inline event system** uses a convention-based YAML format where the last f
 - [Overview](docs/overview.md) — Key capabilities and architecture diagram
 - [Architecture](docs/architecture.md) — Component internals and composition model
 - [Design Principles](docs/principles.md) — Guiding decisions behind the framework
-- [Comparison](docs/comparison.md) — How Harness relates to other agent frameworks
+- [Comparison](docs/comparison.md) — How each language implementation compares
 
 ### Language Guides
 
