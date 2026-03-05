@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: agent-harness
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: litellm
+Requires-Dist: pyyaml
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
