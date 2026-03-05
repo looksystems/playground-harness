@@ -4,6 +4,8 @@
 
 A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, and PHP with trait/mixin-based composition.
 
+Most agent frameworks give you a monolithic base class where every feature is always on. Harness takes the opposite approach: a thin agent loop (`BaseAgent`) with capabilities added through independent mixins — hooks, middleware, tools, events, and a virtual shell. You compose only what you need. The virtual shell is particularly distinctive: instead of building a tool for every query pattern, you mount context as files in an in-memory filesystem and let the model explore with standard Unix commands (`grep`, `cat`, `find`, `jq`) it already knows. Every command is pure emulation — no real shell, no real filesystem, no security risk.
+
 ## Documentation
 
 - [Overview](docs/overview.md) — Key capabilities and architecture diagram
