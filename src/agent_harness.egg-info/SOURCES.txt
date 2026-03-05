@@ -1,8 +1,0 @@
-pyproject.toml
-src/agent_harness.egg-info/PKG-INFO
-src/agent_harness.egg-info/SOURCES.txt
-src/agent_harness.egg-info/dependency_links.txt
-src/agent_harness.egg-info/requires.txt
-src/agent_harness.egg-info/top_level.txt
-src/python/__init__.py
-src/python/base_agent.py
