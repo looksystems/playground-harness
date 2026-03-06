@@ -5,6 +5,7 @@ from src.python.shell import Shell, ShellRegistry, ExecResult
 from src.python.has_shell import HasShell
 from src.python.has_hooks import HasHooks, HookEvent
 from src.python.uses_tools import UsesTools, ToolDef
+from src.python.drivers import ShellDriver, ShellDriverFactory, BuiltinShellDriver, FilesystemDriver
 
 
 class ShellOnly(HasShell):
@@ -202,3 +203,26 @@ class TestShellHooks:
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert "test_tool" in registered
+
+
+class TestHasShellDriver:
+    def test_default_driver_is_builtin(self):
+        obj = ShellOnly()
+        assert isinstance(obj.shell, ShellDriver)
+
+    def test_driver_by_name(self):
+        obj = ShellOnly()
+        obj.__init_has_shell__(driver="builtin")
+        assert isinstance(obj.shell, BuiltinShellDriver)
+
+    def test_fs_returns_filesystem_driver(self):
+        obj = ShellOnly()
+        assert isinstance(obj.fs, FilesystemDriver)
+
+    def test_custom_driver(self):
+        ShellDriverFactory.reset()
+        ShellDriverFactory.register("custom", lambda **kw: BuiltinShellDriver(**kw))
+        obj = ShellOnly()
+        obj.__init_has_shell__(driver="custom")
+        assert isinstance(obj.shell, BuiltinShellDriver)
+        ShellDriverFactory.reset()

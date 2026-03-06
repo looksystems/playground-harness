@@ -25,6 +25,7 @@ class AgentBuilder:
         self._events: list[EventType] = []
         self._skills: list[tuple[Skill, dict[str, Any] | None]] = []
         self._shell_opts: dict[str, Any] | None = None
+        self._driver: str | None = None
         self._commands: list[tuple[str, Callable]] = []
 
     def system(self, prompt: str) -> Self:
@@ -84,6 +85,10 @@ class AgentBuilder:
         self._shell_opts = kwargs
         return self
 
+    def driver(self, name: str) -> Self:
+        self._driver = name
+        return self
+
     def command(self, name: str, handler: Callable) -> Self:
         self._commands.append((name, handler))
         return self
@@ -113,7 +118,9 @@ class AgentBuilder:
             agent.register_event(et)
 
         if self._shell_opts is not None:
-            agent.__init_has_shell__(**self._shell_opts)
+            agent.__init_has_shell__(driver=self._driver, **self._shell_opts)
+        elif self._driver is not None:
+            agent.__init_has_shell__(driver=self._driver)
 
         for name, handler in self._commands:
             agent.register_command(name, handler)

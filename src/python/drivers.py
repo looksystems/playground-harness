@@ -180,6 +180,11 @@ class BuiltinShellDriver(ShellDriver):
     def on_not_found(self, callback: Callable | None) -> None:
         self._shell.on_not_found = callback
 
+    @property
+    def _custom_commands(self) -> dict:
+        """Expose Shell internals for backward compatibility."""
+        return self._shell._custom_commands
+
     @staticmethod
     def from_shell(shell: Shell) -> BuiltinShellDriver:
         """Create from an existing Shell instance."""

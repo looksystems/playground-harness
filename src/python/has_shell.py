@@ -5,8 +5,13 @@ from typing import Any, Callable, Self
 
 from src.python._utils import emit_fire_and_forget
 from src.python.has_hooks import HookEvent
-from src.python.virtual_fs import VirtualFS
 from src.python.shell import Shell, ExecResult, ShellRegistry
+from src.python.drivers import (
+    FilesystemDriver,
+    ShellDriver,
+    ShellDriverFactory,
+    BuiltinShellDriver,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,17 +23,17 @@ class HasShell:
         cwd: str = "/home/user",
         env: dict[str, str] | None = None,
         allowed_commands: set[str] | None = None,
+        driver: str | None = None,
     ) -> None:
         if isinstance(shell, str):
-            self._shell = ShellRegistry.get(shell)
+            self._shell: ShellDriver = BuiltinShellDriver.from_shell(
+                ShellRegistry.get(shell)
+            )
         elif isinstance(shell, Shell):
-            self._shell = shell
+            self._shell = BuiltinShellDriver.from_shell(shell)
         else:
-            self._shell = Shell(
-                fs=VirtualFS(),
-                cwd=cwd,
-                env=env or {},
-                allowed_commands=allowed_commands,
+            self._shell = ShellDriverFactory.create(
+                driver, cwd=cwd, env=env or {}, allowed_commands=allowed_commands
             )
 
         if hasattr(self, "_emit"):
@@ -87,12 +92,12 @@ class HasShell:
         self.register_tool(tool)
 
     @property
-    def shell(self) -> Shell:
+    def shell(self) -> ShellDriver:
         self._ensure_has_shell()
         return self._shell
 
     @property
-    def fs(self) -> VirtualFS:
+    def fs(self) -> FilesystemDriver:
         return self.shell.fs
 
     def exec(self, command: str) -> ExecResult:
