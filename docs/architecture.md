@@ -23,7 +23,7 @@ classDiagram
     }
     class HasHooks {
         +on(event, callback)
-        +off(event, callback)
+        +remove_hook(event, callback)
         +hooks
         #_emit(event, ...args)
     }
@@ -141,7 +141,7 @@ stateDiagram-v2
 | Component | Responsibility |
 |-----------|---------------|
 | **BaseAgent** | Core agent loop: manages turns, calls LLM, handles streaming responses, tool execution dispatch |
-| **HasHooks** | Lifecycle event system: `on()`/`off()` for 22 hook events, read-only `hooks` accessor, concurrent dispatch (Python/TS) or sequential (PHP) |
+| **HasHooks** | Lifecycle event system: `on()`/`remove_hook()` for 22 hook events, read-only `hooks` accessor, concurrent dispatch (Python/TS) or sequential (PHP) |
 | **HasMiddleware** | Sequential message pipeline: `use()`/`remove_middleware()`, read-only `middleware` accessor, pre/post processing |
 | **UsesTools** | Tool registration and execution: `register_tool()`/`unregister_tool()`, read-only `tools` accessor, automatic JSON schema from type hints, async execution |
 | **EmitsEvents** | Event emission configuration: `register_event()`/`unregister_event()`, read-only `events` accessor, builds prompts instructing LLM to emit events, manages per-run event selection |

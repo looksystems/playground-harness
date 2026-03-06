@@ -201,9 +201,9 @@ class SkillManager:
                 self._agent.remove_middleware(mw)
 
         # Remove hooks
-        if hasattr(self._agent, "off"):
+        if hasattr(self._agent, "remove_hook"):
             for event, cb in self._skill_hooks.pop(skill_name, []):
-                self._agent.off(event, cb)
+                self._agent.remove_hook(event, cb)
 
         # Remove commands
         for cmd_name in self._skill_commands.pop(skill_name, []):

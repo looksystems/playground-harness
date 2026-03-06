@@ -22,7 +22,7 @@ trait HasHooks
         };
     }
 
-    public function off(HookEvent $event, callable $callback): static
+    public function removeHook(HookEvent $event, callable $callback): static
     {
         $key = $event->value;
         if (isset($this->hooks[$key])) {

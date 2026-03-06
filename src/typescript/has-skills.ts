@@ -186,8 +186,8 @@ export class SkillManager {
 
     const hookPairs = this.skillHooks.get(name) ?? [];
     for (const [event, cb] of hookPairs) {
-      if (typeof this.agent.off === "function") {
-        this.agent.off(event, cb);
+      if (typeof this.agent.removeHook === "function") {
+        this.agent.removeHook(event, cb);
       }
     }
     this.skillHooks.delete(name);

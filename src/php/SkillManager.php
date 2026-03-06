@@ -129,9 +129,9 @@ class SkillManager
         unset($this->skillMiddleware[$name]);
 
         // Remove hooks
-        if (method_exists($this->agent, 'off') && isset($this->skillHooks[$name])) {
+        if (method_exists($this->agent, 'removeHook') && isset($this->skillHooks[$name])) {
             foreach ($this->skillHooks[$name] as [$event, $cb]) {
-                $this->agent->off($event, $cb);
+                $this->agent->removeHook($event, $cb);
             }
         }
         unset($this->skillHooks[$name]);

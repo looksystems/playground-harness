@@ -99,10 +99,10 @@ $agent->on(HookEvent::TOOL_CALL, function (string $name, array $args) {
 });
 ```
 
-Remove a hook with `off()`:
+Remove a hook with `removeHook()`:
 
 ```php
-$agent->off(HookEvent::RunStart, $callback);
+$agent->removeHook(HookEvent::RunStart, $callback);
 ```
 
 All registration methods return `$this` for fluent chaining. Read-only accessors: `$agent->getHooks()`, `$agent->getMiddleware()`, `$agent->getTools()`, `$agent->getEvents()`.

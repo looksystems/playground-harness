@@ -81,10 +81,10 @@ agent.on(HookEvent.TOOL_CALL, lambda name, args: print(f"Calling {name}"))
 
 Hooks dispatch concurrently via `asyncio.gather` with `return_exceptions=True`. Both sync and async callbacks are supported.
 
-Remove a hook with `off()`:
+Remove a hook with `remove_hook()`:
 
 ```python
-agent.off(HookEvent.RUN_START, my_callback)
+agent.remove_hook(HookEvent.RUN_START, my_callback)
 ```
 
 All registration methods return `self` for fluent chaining:

@@ -46,7 +46,7 @@ class HasHooks:
         self._hooks[event].append(callback)
         return self
 
-    def off(self, event: HookEvent, callback: Callable) -> Self:
+    def remove_hook(self, event: HookEvent, callback: Callable) -> Self:
         if not hasattr(self, "_hooks"):
             self.__init_has_hooks__()
         cbs = self._hooks.get(event, [])

@@ -8,9 +8,9 @@ use PHPUnit\Framework\TestCase;
 use AgentHarness\StandardAgent;
 use AgentHarness\HookEvent;
 
-class OffTest extends TestCase
+class RemoveHookTest extends TestCase
 {
-    public function testOffRemovesCallback(): void
+    public function testRemoveHookRemovesCallback(): void
     {
         $agent = StandardAgent::build('gpt-4')->create();
         $count = 0;
@@ -22,24 +22,24 @@ class OffTest extends TestCase
         $agent->emit(HookEvent::RunStart);
         $this->assertSame(1, $count);
 
-        $agent->off(HookEvent::RunStart, $cb);
+        $agent->removeHook(HookEvent::RunStart, $cb);
         $agent->emit(HookEvent::RunStart);
-        $this->assertSame(1, $count, 'Callback should not fire after off()');
+        $this->assertSame(1, $count, 'Callback should not fire after removeHook()');
     }
 
-    public function testOffReturnsSelf(): void
+    public function testRemoveHookReturnsSelf(): void
     {
         $agent = StandardAgent::build('gpt-4')->create();
         $cb = fn() => null;
         $agent->on(HookEvent::RunStart, $cb);
-        $result = $agent->off(HookEvent::RunStart, $cb);
+        $result = $agent->removeHook(HookEvent::RunStart, $cb);
         $this->assertSame($agent, $result);
     }
 
-    public function testOffNonexistentIsNoop(): void
+    public function testRemoveHookNonexistentIsNoop(): void
     {
         $agent = StandardAgent::build('gpt-4')->create();
-        $result = $agent->off(HookEvent::RunStart, fn() => null);
+        $result = $agent->removeHook(HookEvent::RunStart, fn() => null);
         $this->assertSame($agent, $result);
     }
 }

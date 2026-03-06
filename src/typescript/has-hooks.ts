@@ -44,7 +44,7 @@ export function HasHooks<TBase extends Constructor>(Base: TBase) {
       };
     }
 
-    off(event: HookEvent, callback: (...args: any[]) => any): this {
+    removeHook(event: HookEvent, callback: (...args: any[]) => any): this {
       const cbs = this.hooks.get(event);
       if (cbs) {
         const idx = cbs.indexOf(callback);

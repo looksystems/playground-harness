@@ -133,10 +133,10 @@ describe("AgentBuilder", () => {
 });
 
 // ---------------------------------------------------------------------------
-// off()
+// removeHook()
 // ---------------------------------------------------------------------------
 
-describe("off()", () => {
+describe("removeHook()", () => {
   it("removes callback so it no longer fires", async () => {
     const agent = await new AgentBuilder("gpt-4").create();
     const calls: string[] = [];
@@ -146,7 +146,7 @@ describe("off()", () => {
     await agent.emit(HookEvent.RUN_START);
     expect(calls).toEqual(["fired"]);
 
-    agent.off(HookEvent.RUN_START, cb);
+    agent.removeHook(HookEvent.RUN_START, cb);
     await agent.emit(HookEvent.RUN_START);
     expect(calls).toEqual(["fired"]); // not called again
   });
@@ -155,14 +155,14 @@ describe("off()", () => {
     const agent = await new AgentBuilder("gpt-4").create();
     const cb = () => {};
     agent.on(HookEvent.RUN_START, cb);
-    const result = agent.off(HookEvent.RUN_START, cb);
+    const result = agent.removeHook(HookEvent.RUN_START, cb);
     expect(result).toBe(agent);
   });
 
   it("nonexistent callback removal is a noop", async () => {
     const agent = await new AgentBuilder("gpt-4").create();
     // Should not throw
-    expect(() => agent.off(HookEvent.RUN_START, () => {})).not.toThrow();
+    expect(() => agent.removeHook(HookEvent.RUN_START, () => {})).not.toThrow();
   });
 });
 

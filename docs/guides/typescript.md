@@ -84,10 +84,10 @@ agent.on(HookEvent.RUN_START, () => console.log("Run started"));
 agent.on(HookEvent.TOOL_CALL, (name, args) => console.log(`Calling ${name}`));
 ```
 
-Remove a hook with `off()`:
+Remove a hook with `removeHook()`:
 
 ```typescript
-agent.off(HookEvent.RUN_START, myCallback);
+agent.removeHook(HookEvent.RUN_START, myCallback);
 ```
 
 All registration methods return `this` for fluent chaining. Read-only state is available via public properties: `agent.hooks`, `agent.middlewareStack`, `agent.tools`, `agent.eventRegistry`.

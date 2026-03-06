@@ -146,33 +146,33 @@ class TestAgentBuilder:
 # TestOff
 # ---------------------------------------------------------------------------
 
-class TestOff:
-    def test_off_removes_callback(self):
+class TestRemoveHook:
+    def test_remove_hook_removes_callback(self):
         agent = StandardAgent(model="gpt-4")
         received = []
         cb = lambda: received.append("fired")
         agent.on(HookEvent.RUN_START, cb)
 
-        # Fires before off()
+        # Fires before remove_hook()
         asyncio.run(agent._emit(HookEvent.RUN_START))
         assert received == ["fired"]
 
         received.clear()
-        agent.off(HookEvent.RUN_START, cb)
+        agent.remove_hook(HookEvent.RUN_START, cb)
 
-        # Does not fire after off()
+        # Does not fire after remove_hook()
         asyncio.run(agent._emit(HookEvent.RUN_START))
         assert received == []
 
-    def test_off_returns_self(self):
+    def test_remove_hook_returns_self(self):
         agent = StandardAgent(model="gpt-4")
-        result = agent.off(HookEvent.RUN_START, lambda: None)
+        result = agent.remove_hook(HookEvent.RUN_START, lambda: None)
         assert result is agent
 
-    def test_off_nonexistent_is_noop(self):
+    def test_remove_hook_nonexistent_is_noop(self):
         agent = StandardAgent(model="gpt-4")
         # Should not raise
-        agent.off(HookEvent.RUN_START, lambda: None)
+        agent.remove_hook(HookEvent.RUN_START, lambda: None)
 
 
 # ---------------------------------------------------------------------------
