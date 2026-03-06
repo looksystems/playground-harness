@@ -45,7 +45,7 @@ Keep the skill system in `examples/` as a documented pattern, not a core mixin. 
 
 ## Consequences
 
-- The core framework stays minimal — 5 mixins (hooks, middleware, tools, events, shell) plus BaseAgent
+- The core framework stays minimal — 6 mixins (hooks, middleware, tools, events, shell, commands) plus BaseAgent
 - Users who need the skill pattern can copy from `examples/skills.*` and adapt
 - Promoting specific capabilities (like HasShell) to core mixins is the preferred path for first-class features
 - If strong demand emerges for a generic skill system, it can be promoted to core later with real-world usage to guide the API

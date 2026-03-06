@@ -48,3 +48,4 @@ TypeScript uses `defineTool()`, PHP uses `ToolDef::make()`. The JSON schema is p
 - TypeScript and PHP require explicit schemas, which is more verbose but unambiguous
 - The `ToolDef` dataclass/interface is the universal interchange format — any system that produces a `ToolDef` can register tools (skills, plugins, auto-generated from OpenAPI specs, etc.)
 - Error serialization back to the LLM is a key reliability feature — the model can retry with corrected arguments rather than the conversation dying on a tool failure
+- `unregister_tool(name)` was later added to complement `register_tool`, enabling clean removal of auto-registered tools (e.g., by `HasCommands` when unregistering a slash command). It fires the `TOOL_UNREGISTER` hook event.

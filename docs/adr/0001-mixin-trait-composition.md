@@ -13,7 +13,7 @@ maintain and reason about.
 ## Decision
 
 Use trait/mixin-based composition. Each capability (hooks, middleware, tools,
-events) is an independent mixin that encapsulates a single concern. BaseAgent
+events, shell, commands) is an independent mixin that encapsulates a single concern. BaseAgent
 provides only the core loop. StandardAgent composes all mixins together for
 the common case.
 

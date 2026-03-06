@@ -32,7 +32,7 @@ function HasHooks<TBase extends Constructor>(Base: TBase) {
 StandardAgent is composed by nesting these functions:
 
 ```typescript
-class StandardAgent extends EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent)))) {}
+const StandardAgent = HasCommands(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))));
 ```
 
 ## Consequences

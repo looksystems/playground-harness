@@ -55,7 +55,7 @@ All hook calls are guarded with runtime duck-typing checks (`typeof (this as any
 
 ## Consequences
 
-- Total hook count increases from 10 to 18
+- Total hook count increases from 10 to 18 (later to 22 with [ADR 0023](0023-has-commands-mixin.md))
 - Shell operations become observable without modifying the Shell class's sync contract
 - Registration changes are trackable for audit logging and dynamic capability management
 - The `onNotFound` callback adds a small coupling point between Shell and HasShell, but it's optional and null by default
