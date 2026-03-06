@@ -18,7 +18,11 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 | **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` |
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
-| **Test Count** | 227 | 279 | 271 |
+| **Test Count** | 313 | 344 | 312 |
+| **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` |
+| **FS Driver** | `FilesystemDriver` (ABC) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` |
+| **Driver Factory** | `ShellDriverFactory` (class methods) | `ShellDriverFactory` (static methods) | `ShellDriverFactory` (static methods) |
+| **Driver Selection** | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `->driver()` |
 | **VFS Content Types** | `str \| bytes` | `string` only | `string` only |
 | **Lazy File Providers** | Synchronous callables | Async (returns `Promise<string>`) | Synchronous closures |
 | **Shell Registry** | Global singleton (module-level) | Global singleton (module-level) | Global singleton (static class) |
@@ -71,7 +75,17 @@ TypeScript's lazy file providers are async (returning `Promise<string>`) because
 
 The `HasShell` mixin follows the same language-specific patterns as other mixins: Python multiple inheritance, TypeScript function-based mixin, PHP native trait. In all three, it auto-registers the `exec` tool when `UsesTools` is also composed, and works independently for programmatic use when it isn't.
 
-### 7. Skills
+### 7. Shell Driver Architecture
+
+All three languages implement the same driver/adapter pattern for the shell and filesystem backends. Two open contracts (`FilesystemDriver` and `ShellDriver`) allow the backend to be swapped without changing agent code. The built-in driver wraps the existing `VirtualFS` and `Shell` classes as the default, requiring no external dependencies.
+
+Python defines the contracts as ABCs (`FilesystemDriver(ABC)`, `ShellDriver(ABC)`). TypeScript uses interfaces. PHP uses interfaces, with the shell contract named `ShellDriverInterface` to avoid a class name conflict with the existing `Shell` class.
+
+`ShellDriverFactory` is consistent across all three: a class-level registry with `register(name, factory)`, `create(name?, opts?)`, a `default` property, and `reset()`. Custom drivers can be registered and selected globally or per-agent via the builder's `.driver()` method.
+
+The `on_not_found` callback (invoked when a command is not found) is a property on the Python and TypeScript drivers, and a `setOnNotFound()` method on the PHP driver (matching PHP's convention of explicit setter methods for callbacks).
+
+### 8. Skills
 
 The `HasSkills` mixin is consistent across all three languages. Skills are mounted via `mount(skill)` and unmounted via `unmount(name)`. Each skill bundles tools, instructions, middleware, hooks, and lifecycle management into a single mountable unit. Dependencies are resolved transitively via topological sort. Four `skill_*` hook events (mount, unmount, setup, teardown) are emitted when `HasHooks` is composed.
 
