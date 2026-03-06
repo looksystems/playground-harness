@@ -229,7 +229,7 @@ describe("HasSkills", () => {
   // -----------------------------------------------------------------------
   describe("SkillManager standalone", () => {
     it("mounts a skill into skills map", async () => {
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       const skill = new MathSkill();
       await mgr.mount(skill);
@@ -238,7 +238,7 @@ describe("HasSkills", () => {
     });
 
     it("unmounts a skill from skills map", async () => {
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       const skill = new MathSkill();
       await mgr.mount(skill);
@@ -250,7 +250,7 @@ describe("HasSkills", () => {
     it("shutdown tears down in reverse order", async () => {
       AlphaTrackingSkill.teardownCalls = [];
       BetaTrackingSkill.teardownCalls = [];
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       await mgr.mount(new AlphaTrackingSkill());
       await mgr.mount(new BetaTrackingSkill());
@@ -281,7 +281,7 @@ describe("HasSkills", () => {
 
     it("duplicate mount is skipped", async () => {
       TrackingSkill.setupCalls = [];
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       const skill = new TrackingSkill();
       await mgr.mount(skill);
@@ -291,7 +291,7 @@ describe("HasSkills", () => {
     });
 
     it("unmount of non-existent skill is a no-op", async () => {
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       await mgr.unmount("nonexistent");
       expect(mgr.mounted.size).toBe(0);
@@ -306,34 +306,34 @@ describe("HasSkills", () => {
       const agent = new SkillsToolsAgent();
       const skill = new MathSkill();
       await agent.mount(skill);
-      expect(agent._tools.has("add")).toBe(true);
-      expect(agent._tools.has("multiply")).toBe(true);
+      expect(agent.tools.has("add")).toBe(true);
+      expect(agent.tools.has("multiply")).toBe(true);
     });
 
     it("unmount removes tools from agent", async () => {
       const agent = new SkillsToolsAgent();
       const skill = new MathSkill();
       await agent.mount(skill);
-      expect(agent._tools.has("add")).toBe(true);
+      expect(agent.tools.has("add")).toBe(true);
       await agent.unmount("math");
-      expect(agent._tools.has("add")).toBe(false);
-      expect(agent._tools.has("multiply")).toBe(false);
+      expect(agent.tools.has("add")).toBe(false);
+      expect(agent.tools.has("multiply")).toBe(false);
     });
 
     it("registered tools are functional", async () => {
       const agent = new SkillsToolsAgent();
       await agent.mount(new MathSkill());
-      const addTool = agent._tools.get("add")!;
+      const addTool = agent.tools.get("add")!;
       expect(addTool.execute({ a: 3, b: 4 })).toBe(7);
-      const mulTool = agent._tools.get("multiply")!;
+      const mulTool = agent.tools.get("multiply")!;
       expect(mulTool.execute({ a: 3, b: 4 })).toBe(12);
     });
 
-    it("skill with no tools does not add to _tools", async () => {
+    it("skill with no tools does not add to tools", async () => {
       const agent = new SkillsToolsAgent();
       await agent.mount(new EmptySkill());
       // Only the prompt middleware might be present, but no tool names from EmptySkill
-      expect(agent._tools.size).toBe(0);
+      expect(agent.tools.size).toBe(0);
     });
   });
 
@@ -495,7 +495,7 @@ describe("HasSkills", () => {
         { role: "system", content: "You are helpful." },
         { role: "user", content: "Hello" },
       ];
-      const result = await agent._run_pre(messages, {});
+      const result = await agent.runPre(messages, {});
       const system = result.find((m: any) => m.role === "system");
       expect(system!.content).toContain("instruction");
       expect(system!.content).toContain("Follow these instructions");
@@ -519,7 +519,7 @@ describe("HasSkills", () => {
         { role: "system", content: "Base system." },
         { role: "user", content: "Hello" },
       ];
-      const result = await agent._run_pre(messages, {});
+      const result = await agent.runPre(messages, {});
       const system = result.find((m: any) => m.role === "system");
       expect(system!.content).toContain("Alpha instructions here");
       expect(system!.content).toContain("Beta instructions here");
@@ -533,7 +533,7 @@ describe("HasSkills", () => {
         { role: "system", content: "Base system." },
         { role: "user", content: "Hello" },
       ];
-      const result = await agent._run_pre(messages, {});
+      const result = await agent.runPre(messages, {});
       const system = result.find((m: any) => m.role === "system");
       expect(system!.content).toBe("Base system.");
     });
@@ -543,7 +543,7 @@ describe("HasSkills", () => {
       await agent.mount(new InstructionSkill());
 
       const messages = [{ role: "user", content: "Hello" }];
-      const result = await agent._run_pre(messages, {});
+      const result = await agent.runPre(messages, {});
       const system = result.find((m: any) => m.role === "system");
       expect(system).toBeDefined();
       expect(system!.content).toContain("Follow these instructions");
@@ -572,9 +572,9 @@ describe("HasSkills", () => {
     it("skill returning middleware() registers on agent", async () => {
       const agent = new FullSkillAgent();
       await agent.mount(new MiddlewareSkill());
-      // The skill's middleware should be in agent._middleware
+      // The skill's middleware should be in agent.middlewareStack
       // Run pre to verify it is called
-      await agent._run_pre([], {});
+      await agent.runPre([], {});
       expect(MiddlewareSkill.preCalled).toBe(true);
     });
 
@@ -582,14 +582,14 @@ describe("HasSkills", () => {
       const agent = new FullSkillAgent();
       await agent.mount(new HookProvidingSkill());
       // Fire the event that the skill registered a hook for
-      await agent._emit(HookEvent.RUN_START);
+      await agent.emit(HookEvent.RUN_START);
       expect(HookProvidingSkill.hookFired).toBe(true);
     });
 
     it("skill hooks do not fire for unrelated events", async () => {
       const agent = new FullSkillAgent();
       await agent.mount(new HookProvidingSkill());
-      await agent._emit(HookEvent.RUN_END);
+      await agent.emit(HookEvent.RUN_END);
       expect(HookProvidingSkill.hookFired).toBe(false);
     });
   });
@@ -630,7 +630,7 @@ describe("HasSkills", () => {
       const order: string[] = [];
 
       // Use SkillManager directly to track mount order
-      const agent = { _middleware: [] as any[] };
+      const agent = { middlewareStack: [] as any[], use(mw: any) { this.middlewareStack.push(mw); }, removeMiddleware(mw: any) { const i = this.middlewareStack.indexOf(mw); if (i !== -1) this.middlewareStack.splice(i, 1); } };
       const mgr = new SkillManager(agent);
       const resolved = mgr.resolveDeps(new DepASkill());
       for (const s of resolved) {
@@ -650,11 +650,11 @@ describe("HasSkills", () => {
       expect(agent.skills).toBeInstanceOf(Map);
     });
 
-    it("lazy initialization via _ensureHasSkills", () => {
+    it("lazy initialization via ensureHasSkills", () => {
       const agent = new SkillsAgent();
-      expect(agent._skillManager).toBeUndefined();
+      expect(agent.skillManager).toBeUndefined();
       const _ = agent.skills;
-      expect(agent._skillManager).toBeDefined();
+      expect(agent.skillManager).toBeDefined();
     });
 
     it("shutdown on agent with no skills is a no-op", async () => {
@@ -689,7 +689,7 @@ describe("HasSkills", () => {
 
     it("commands registered on mount", async () => {
       const agent = new ShellSkillAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       await agent.mount(new CommandSkill());
       const result = agent.exec("greet");
       expect(result.stdout).toBe("hello\n");
@@ -697,7 +697,7 @@ describe("HasSkills", () => {
 
     it("commands removed on unmount", async () => {
       const agent = new ShellSkillAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       await agent.mount(new CommandSkill());
       expect(agent.exec("greet").stdout).toBe("hello\n");
       await agent.unmount("command");
@@ -706,7 +706,7 @@ describe("HasSkills", () => {
 
     it("multiple commands from one skill", async () => {
       const agent = new ShellSkillAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       await agent.mount(new CommandSkill());
       expect(agent.exec("greet").stdout).toBe("hello\n");
       expect(agent.exec("farewell").stdout).toBe("goodbye\n");

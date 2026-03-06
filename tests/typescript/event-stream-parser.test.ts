@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   EventStreamParser,
-  EventType,
+  StructuredEvent,
   StreamConfig,
 } from "../../src/typescript/event-stream-parser.js";
 import { ParsedEvent } from "../../src/typescript/message-bus.js";
@@ -42,7 +42,7 @@ describe("EventStreamParser", () => {
   });
 
   it("buffered event extraction", async () => {
-    const eventType: EventType = {
+    const eventType: StructuredEvent = {
       name: "log_entry",
       description: "A log entry",
       schema: { data: { level: "string", message: "string" } },
@@ -64,7 +64,7 @@ describe("EventStreamParser", () => {
   });
 
   it("streaming event", async () => {
-    const eventType: EventType = {
+    const eventType: StructuredEvent = {
       name: "user_response",
       description: "Response to user",
       schema: { data: { message: "string" } },
@@ -96,7 +96,7 @@ describe("EventStreamParser", () => {
   });
 
   it("malformed yaml passes as text", async () => {
-    const eventType: EventType = {
+    const eventType: StructuredEvent = {
       name: "test",
       description: "test",
       schema: {},
@@ -110,7 +110,7 @@ describe("EventStreamParser", () => {
   });
 
   it("incomplete event at end of stream", async () => {
-    const eventType: EventType = {
+    const eventType: StructuredEvent = {
       name: "test",
       description: "test",
       schema: {},
@@ -123,7 +123,7 @@ describe("EventStreamParser", () => {
   });
 
   it("multiple events", async () => {
-    const eventType: EventType = {
+    const eventType: StructuredEvent = {
       name: "log",
       description: "A log",
       schema: { data: { msg: "string" } },

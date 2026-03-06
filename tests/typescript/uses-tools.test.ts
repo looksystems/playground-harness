@@ -34,8 +34,8 @@ const multiplyTool = defineTool({
 describe("UsesTools", () => {
   it("register tool via defineTool", () => {
     const obj = new ToolUser();
-    obj.register_tool(addTool);
-    expect(obj._tools_schema().some((s) => s.function.name === "add")).toBe(true);
+    obj.registerTool(addTool);
+    expect(obj.toolsSchema().some((s) => s.function.name === "add")).toBe(true);
   });
 
   it("register tooldef directly", () => {
@@ -46,14 +46,14 @@ describe("UsesTools", () => {
       execute: (args) => args.x * 2,
       parameters: { type: "object", properties: { x: { type: "integer" } } },
     };
-    obj.register_tool(td);
-    expect(obj._tools_schema().some((s) => s.function.name === "custom")).toBe(true);
+    obj.registerTool(td);
+    expect(obj.toolsSchema().some((s) => s.function.name === "custom")).toBe(true);
   });
 
-  it("tools_schema", () => {
+  it("toolsSchema", () => {
     const obj = new ToolUser();
-    obj.register_tool(addTool);
-    const schema = obj._tools_schema();
+    obj.registerTool(addTool);
+    const schema = obj.toolsSchema();
     expect(schema.length).toBe(1);
     expect(schema[0].type).toBe("function");
     expect(schema[0].function.name).toBe("add");
@@ -62,28 +62,28 @@ describe("UsesTools", () => {
 
   it("execute tool async", async () => {
     const obj = new ToolUser();
-    obj.register_tool(addTool);
-    const result = await obj._execute_tool("add", { a: 3, b: 4 });
+    obj.registerTool(addTool);
+    const result = await obj.executeTool("add", { a: 3, b: 4 });
     expect(result).toContain("7");
   });
 
   it("execute tool sync", async () => {
     const obj = new ToolUser();
-    obj.register_tool(multiplyTool);
-    const result = await obj._execute_tool("multiply", { a: 3, b: 4 });
+    obj.registerTool(multiplyTool);
+    const result = await obj.executeTool("multiply", { a: 3, b: 4 });
     expect(result).toContain("12");
   });
 
   it("execute unknown tool", async () => {
     const obj = new ToolUser();
-    const result = await obj._execute_tool("nonexistent", {});
+    const result = await obj.executeTool("nonexistent", {});
     expect(result.toLowerCase()).toMatch(/error|unknown/);
   });
 
   it("auto schema from definition", () => {
     const obj = new ToolUser();
-    obj.register_tool(addTool);
-    const schema = obj._tools_schema();
+    obj.registerTool(addTool);
+    const schema = obj.toolsSchema();
     const props = schema[0].function.parameters.properties;
     expect(props.a.type).toBe("integer");
     expect(props.b.type).toBe("integer");

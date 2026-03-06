@@ -9,6 +9,13 @@ trait HasSkills
     private ?SkillManager $skillManager = null;
     private bool $hasSkillsInitialized = false;
 
+    private function tryEmitFromSkills(HookEvent $event, mixed ...$args): void
+    {
+        if (method_exists($this, 'emit')) {
+            $this->emit($event, ...$args);
+        }
+    }
+
     private function ensureHasSkills(): void
     {
         if (!$this->hasSkillsInitialized) {
@@ -17,19 +24,13 @@ trait HasSkills
         }
     }
 
-    public function mount(Skill $skill, array $config = []): void
+    public function mount(Skill $skill, array $config = []): static
     {
         $this->ensureHasSkills();
-
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::SkillSetup, $skill);
-        }
-
+        $this->tryEmitFromSkills(HookEvent::SkillSetup, $skill);
         $this->skillManager->mount($skill, $config);
-
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::SkillMount, $skill);
-        }
+        $this->tryEmitFromSkills(HookEvent::SkillMount, $skill);
+        return $this;
     }
 
     public function unmount(string $name): void
@@ -39,15 +40,9 @@ trait HasSkills
         $skills = $this->skillManager->skills();
         $skill = $skills[$name] ?? null;
 
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::SkillTeardown, $skill ?? $name);
-        }
-
+        $this->tryEmitFromSkills(HookEvent::SkillTeardown, $skill ?? $name);
         $this->skillManager->unmount($name);
-
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::SkillUnmount, $skill ?? $name);
-        }
+        $this->tryEmitFromSkills(HookEvent::SkillUnmount, $skill ?? $name);
     }
 
     public function shutdown(): void

@@ -9,14 +9,14 @@ class EventStreamParser
     private const EVENT_START_DELIMITER = '---event';
     private const EVENT_END_DELIMITER = '---';
 
-    /** @var array<string, EventType> */
+    /** @var array<string, StructuredEvent> */
     private array $eventTypes = [];
 
     /** @var list<callable> */
     private array $callbacks = [];
 
     /**
-     * @param list<EventType> $eventTypes
+     * @param list<StructuredEvent> $eventTypes
      */
     public function __construct(array $eventTypes)
     {

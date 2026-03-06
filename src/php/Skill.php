@@ -62,7 +62,7 @@ abstract class Skill
     }
 
     /**
-     * @return array<string, array<int, callable>>
+     * @return array<value-of<HookEvent>, list<callable>>
      */
     public function hooks(): array
     {

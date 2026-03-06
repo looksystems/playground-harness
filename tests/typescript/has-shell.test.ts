@@ -49,7 +49,7 @@ describe("HasShell", () => {
     const fs = new VirtualFS({ "/f.txt": "content" });
     const sh = new Shell({ fs, cwd: "/tmp" });
     const agent = new ShellAgent();
-    agent._initHasShell({ shell: sh });
+    agent.initHasShell({ shell: sh });
     expect(agent.exec("pwd").stdout).toBe("/tmp\n");
     expect(agent.exec("cat /f.txt").stdout).toBe("content");
   });
@@ -60,13 +60,13 @@ describe("HasShell", () => {
     ShellRegistry.register("my-shell", sh);
 
     const agent = new ShellAgent();
-    agent._initHasShell({ shell: "my-shell" });
+    agent.initHasShell({ shell: "my-shell" });
     expect(agent.exec("cat /data.txt").stdout).toBe("registry-data");
   });
 
   it("init with custom cwd and env", () => {
     const agent = new ShellAgent();
-    agent._initHasShell({
+    agent.initHasShell({
       cwd: "/custom",
       env: { NAME: "test" },
     });
@@ -76,7 +76,7 @@ describe("HasShell", () => {
 
   it("init with allowed commands", () => {
     const agent = new ShellAgent();
-    agent._initHasShell({
+    agent.initHasShell({
       allowedCommands: new Set(["echo"]),
     });
     expect(agent.exec("echo hi").exitCode).toBe(0);
@@ -85,10 +85,10 @@ describe("HasShell", () => {
 
   it("auto-registers exec tool when UsesTools is present", () => {
     const agent = new ToolShellAgent();
-    agent._initHasShell();
+    agent.initHasShell();
 
     // Check that exec tool was registered
-    const tool = agent._tools.get("exec");
+    const tool = agent.tools.get("exec");
     expect(tool).toBeDefined();
     expect(tool!.name).toBe("exec");
     expect(tool!.description).toContain("Execute a bash command");
@@ -96,19 +96,19 @@ describe("HasShell", () => {
 
   it("exec tool produces output", () => {
     const agent = new ToolShellAgent();
-    agent._initHasShell();
+    agent.initHasShell();
     agent.fs.write("/greet.txt", "hello");
 
-    const tool = agent._tools.get("exec")!;
+    const tool = agent.tools.get("exec")!;
     const result = tool.execute({ command: "cat /greet.txt" });
     expect(result).toBe("hello");
   });
 
   it("exec tool shows stderr and exit code", () => {
     const agent = new ToolShellAgent();
-    agent._initHasShell();
+    agent.initHasShell();
 
-    const tool = agent._tools.get("exec")!;
+    const tool = agent.tools.get("exec")!;
     const result = tool.execute({ command: "cat /nonexistent" });
     expect(result).toContain("[stderr]");
     expect(result).toContain("[exit code: 1]");
@@ -116,25 +116,31 @@ describe("HasShell", () => {
 
   it("exec tool returns (no output) for empty result", () => {
     const agent = new ToolShellAgent();
-    agent._initHasShell();
+    agent.initHasShell();
 
-    const tool = agent._tools.get("exec")!;
+    const tool = agent.tools.get("exec")!;
     const result = tool.execute({ command: "touch /x.txt" });
     expect(result).toBe("(no output)");
   });
 
-  it("does not auto-register when UsesTools is absent", () => {
-    const agent = new ShellAgent();
-    agent._initHasShell();
-    // No _tools property on plain ShellAgent
-    expect("_tools" in agent).toBe(false);
+  it("registerTool: false skips exec tool registration", () => {
+    const agent = new ToolShellAgent();
+    agent.initHasShell({ registerTool: false });
+    expect(agent.tools.has("exec")).toBe(false);
   });
 
-  it("_ensureHasShell is idempotent", () => {
+  it("does not auto-register when UsesTools is absent", () => {
     const agent = new ShellAgent();
-    agent._ensureHasShell();
+    agent.initHasShell();
+    // No tools property on plain ShellAgent
+    expect("tools" in agent && agent.tools instanceof Map).toBe(false);
+  });
+
+  it("ensureHasShell is idempotent", () => {
+    const agent = new ShellAgent();
+    agent.ensureHasShell();
     const shell1 = agent._shell;
-    agent._ensureHasShell();
+    agent.ensureHasShell();
     const shell2 = agent._shell;
     expect(shell1).toBe(shell2);
   });
@@ -145,7 +151,7 @@ describe("HasShell", () => {
   describe("Shell hooks", () => {
     it("emits SHELL_CALL before exec", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const calls: string[] = [];
       agent.on(HookEvent.SHELL_CALL, (cmd: string) => { calls.push(cmd); });
       agent.exec("echo hello");
@@ -155,7 +161,7 @@ describe("HasShell", () => {
 
     it("emits SHELL_RESULT after exec", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const results: any[] = [];
       agent.on(HookEvent.SHELL_RESULT, (cmd: string, result: any) => {
         results.push({ cmd, exitCode: result.exitCode });
@@ -167,7 +173,7 @@ describe("HasShell", () => {
 
     it("emits SHELL_NOT_FOUND for unknown commands", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const notFound: string[] = [];
       agent.on(HookEvent.SHELL_NOT_FOUND, (name: string) => { notFound.push(name); });
       agent.exec("nonexistent arg1");
@@ -177,7 +183,7 @@ describe("HasShell", () => {
 
     it("emits SHELL_NOT_FOUND inside pipeline", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const notFound: string[] = [];
       agent.on(HookEvent.SHELL_NOT_FOUND, (name: string) => { notFound.push(name); });
       agent.exec("echo hi | bogus");
@@ -187,7 +193,7 @@ describe("HasShell", () => {
 
     it("emits SHELL_CWD when cwd changes", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       agent.fs.write("/tmp/.keep", "");
       const cwdChanges: any[] = [];
       agent.on(HookEvent.SHELL_CWD, (oldCwd: string, newCwd: string) => {
@@ -201,7 +207,7 @@ describe("HasShell", () => {
 
     it("does not emit SHELL_CWD when cwd stays the same", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const cwdChanges: any[] = [];
       agent.on(HookEvent.SHELL_CWD, (oldCwd: string, newCwd: string) => {
         cwdChanges.push({ oldCwd, newCwd });
@@ -219,7 +225,7 @@ describe("HasShell", () => {
 
     it("throwing hook doesn't break exec", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       agent.on(HookEvent.SHELL_CALL, () => { throw new Error("boom"); });
       const result = agent.exec("echo hello");
       expect(result.stdout).toBe("hello\n");
@@ -228,7 +234,7 @@ describe("HasShell", () => {
 
     it("emits COMMAND_REGISTER on registerCommand", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const registered: string[] = [];
       agent.on(HookEvent.COMMAND_REGISTER, (name: string) => { registered.push(name); });
       agent.registerCommand("mycmd", (args, stdin) => ({ stdout: "ok\n", stderr: "", exitCode: 0 }));
@@ -238,7 +244,7 @@ describe("HasShell", () => {
 
     it("emits COMMAND_UNREGISTER on unregisterCommand", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       agent.registerCommand("mycmd", (args, stdin) => ({ stdout: "ok\n", stderr: "", exitCode: 0 }));
       const unregistered: string[] = [];
       agent.on(HookEvent.COMMAND_UNREGISTER, (name: string) => { unregistered.push(name); });
@@ -247,12 +253,12 @@ describe("HasShell", () => {
       expect(unregistered).toEqual(["mycmd"]);
     });
 
-    it("emits TOOL_REGISTER on register_tool", async () => {
+    it("emits TOOL_REGISTER on registerTool", async () => {
       const agent = new HookShellAgent();
-      agent._initHasShell();
+      agent.initHasShell();
       const registered: any[] = [];
       agent.on(HookEvent.TOOL_REGISTER, (toolDef: any) => { registered.push(toolDef.name); });
-      agent.register_tool({
+      agent.registerTool({
         name: "test_tool",
         description: "test",
         execute: () => "ok",

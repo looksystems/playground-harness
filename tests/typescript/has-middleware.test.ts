@@ -27,22 +27,22 @@ describe("HasMiddleware", () => {
   it("use adds middleware", () => {
     const obj = new MiddlewareUser();
     obj.use(uppercaseMiddleware);
-    expect(obj._middleware.length).toBe(1);
+    expect(obj.middlewareStack.length).toBe(1);
   });
 
-  it("run_pre transforms messages", async () => {
+  it("runPre transforms messages", async () => {
     const obj = new MiddlewareUser();
     obj.use(uppercaseMiddleware);
     const messages = [{ role: "user", content: "hello" }];
-    const result = await obj._run_pre(messages, null);
+    const result = await obj.runPre(messages, null);
     expect(result[0].content).toBe("HELLO");
   });
 
-  it("run_post transforms message", async () => {
+  it("runPost transforms message", async () => {
     const obj = new MiddlewareUser();
     obj.use(uppercaseMiddleware);
     const msg = { role: "assistant", content: "hello" };
-    const result = await obj._run_post(msg, null);
+    const result = await obj.runPost(msg, null);
     expect(result.content).toBe("HELLO");
   });
 
@@ -51,7 +51,7 @@ describe("HasMiddleware", () => {
     obj.use(uppercaseMiddleware);
     obj.use(prefixMiddleware);
     const messages = [{ role: "user", content: "hello" }];
-    const result = await obj._run_pre(messages, null);
+    const result = await obj.runPre(messages, null);
     expect(result[0].content).toBe("PREFIX");
     expect(result[1].content).toBe("HELLO");
   });
@@ -59,7 +59,18 @@ describe("HasMiddleware", () => {
   it("no middleware", async () => {
     const obj = new MiddlewareUser();
     const messages = [{ role: "user", content: "hello" }];
-    const result = await obj._run_pre(messages, null);
+    const result = await obj.runPre(messages, null);
     expect(result).toEqual(messages);
+  });
+
+  it("removeMiddleware removes middleware", async () => {
+    const obj = new MiddlewareUser();
+    obj.use(uppercaseMiddleware);
+    expect(obj.middlewareStack.length).toBe(1);
+    obj.removeMiddleware(uppercaseMiddleware);
+    expect(obj.middlewareStack.length).toBe(0);
+    const messages = [{ role: "user", content: "hello" }];
+    const result = await obj.runPre(messages, null);
+    expect(result[0].content).toBe("hello");
   });
 });

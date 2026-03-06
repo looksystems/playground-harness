@@ -8,7 +8,7 @@ class SkillContext
 {
     public function __construct(
         public readonly Skill $skill,
-        public readonly mixed $agent,
+        public readonly object $agent,
         public array $config = [],
         public array $state = [],
     ) {

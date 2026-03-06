@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace AgentHarness\Tests;
 
 use AgentHarness\EventStreamParser;
-use AgentHarness\EventType;
+use AgentHarness\StructuredEvent;
 use AgentHarness\ParsedEvent;
 use AgentHarness\StreamConfig;
 use PHPUnit\Framework\TestCase;
@@ -46,7 +46,7 @@ class EventStreamParserTest extends TestCase
 
     public function testBufferedEventExtraction(): void
     {
-        $eventType = new EventType(
+        $eventType = new StructuredEvent(
             name: 'log_entry',
             description: 'A log entry',
             schema: ['data' => ['level' => 'string', 'message' => 'string']],
@@ -70,7 +70,7 @@ class EventStreamParserTest extends TestCase
 
     public function testStreamingEvent(): void
     {
-        $eventType = new EventType(
+        $eventType = new StructuredEvent(
             name: 'user_response',
             description: 'Response to user',
             schema: ['data' => ['message' => 'string']],
@@ -110,7 +110,7 @@ class EventStreamParserTest extends TestCase
 
     public function testMalformedYamlPassesAsText(): void
     {
-        $eventType = new EventType(name: 'test', description: 'test', schema: []);
+        $eventType = new StructuredEvent(name: 'test', description: 'test', schema: []);
         $parser = new EventStreamParser(eventTypes: [$eventType]);
         $text = "Before.\n---event\n: this is not valid yaml [\n---\nAfter.";
         $result = $this->collectText($parser, $this->tokenStream($text));
@@ -121,7 +121,7 @@ class EventStreamParserTest extends TestCase
 
     public function testIncompleteEventAtEndOfStream(): void
     {
-        $eventType = new EventType(name: 'test', description: 'test', schema: []);
+        $eventType = new StructuredEvent(name: 'test', description: 'test', schema: []);
         $parser = new EventStreamParser(eventTypes: [$eventType]);
         $text = "Before.\n---event\ntype: test\ndata:\n  x: 1";
         $result = $this->collectText($parser, $this->tokenStream($text));
@@ -132,7 +132,7 @@ class EventStreamParserTest extends TestCase
 
     public function testMultipleEvents(): void
     {
-        $eventType = new EventType(
+        $eventType = new StructuredEvent(
             name: 'log',
             description: 'A log',
             schema: ['data' => ['msg' => 'string']],

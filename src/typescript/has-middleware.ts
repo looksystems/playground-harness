@@ -7,14 +7,23 @@ export interface Middleware {
 
 export function HasMiddleware<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _middleware: Middleware[] = [];
+    middlewareStack: Middleware[] = [];
 
-    use(middleware: Middleware): void {
-      this._middleware.push(middleware);
+    use(middleware: Middleware): this {
+      this.middlewareStack.push(middleware);
+      return this;
     }
 
-    async _run_pre(messages: Record<string, any>[], context: any): Promise<Record<string, any>[]> {
-      for (const mw of this._middleware) {
+    removeMiddleware(middleware: Middleware): this {
+      const idx = this.middlewareStack.indexOf(middleware);
+      if (idx !== -1) {
+        this.middlewareStack.splice(idx, 1);
+      }
+      return this;
+    }
+
+    async runPre(messages: Record<string, any>[], context: any): Promise<Record<string, any>[]> {
+      for (const mw of this.middlewareStack) {
         if (mw.pre) {
           messages = await Promise.resolve(mw.pre(messages, context));
         }
@@ -22,8 +31,8 @@ export function HasMiddleware<TBase extends Constructor>(Base: TBase) {
       return messages;
     }
 
-    async _run_post(message: Record<string, any>, context: any): Promise<Record<string, any>> {
-      for (const mw of this._middleware) {
+    async runPost(message: Record<string, any>, context: any): Promise<Record<string, any>> {
+      for (const mw of this.middlewareStack) {
         if (mw.post) {
           message = await Promise.resolve(mw.post(message, context));
         }

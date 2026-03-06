@@ -8,6 +8,13 @@ trait HasShell
 {
     private ?Shell $shell = null;
 
+    private function tryEmitFromShell(HookEvent $event, mixed ...$args): void
+    {
+        if (method_exists($this, 'emit')) {
+            $this->emit($event, ...$args);
+        }
+    }
+
     /**
      * Initialize the HasShell trait.
      *
@@ -15,12 +22,14 @@ trait HasShell
      * @param string $cwd Working directory
      * @param array<string, string> $env Environment variables
      * @param list<string>|null $allowedCommands Restrict available commands
+     * @param bool $registerTool Whether to auto-register the exec tool (requires UsesTools)
      */
     public function initHasShell(
         string|Shell|null $shell = null,
         string $cwd = '/home/user',
         array $env = [],
         ?array $allowedCommands = null,
+        bool $registerTool = true,
     ): void {
         if (is_string($shell)) {
             $this->shell = ShellRegistry::get($shell);
@@ -42,8 +51,8 @@ trait HasShell
             };
         }
 
-        // Auto-register exec tool if UsesTools trait is composed
-        if (method_exists($this, 'registerTool')) {
+        // Auto-register exec tool if UsesTools trait is composed (opt-out via registerTool: false)
+        if ($registerTool && method_exists($this, 'registerTool')) {
             $this->registerShellTool();
         }
     }
@@ -112,16 +121,12 @@ trait HasShell
 
     public function execCommand(string $command): ExecResult
     {
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::ShellCall, $command);
-        }
+        $this->tryEmitFromShell(HookEvent::ShellCall, $command);
         $oldCwd = $this->shell()->cwd;
         $result = $this->shell()->exec($command);
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::ShellResult, $command, $result);
-            if ($this->shell()->cwd !== $oldCwd) {
-                $this->emit(HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
-            }
+        $this->tryEmitFromShell(HookEvent::ShellResult, $command, $result);
+        if ($this->shell()->cwd !== $oldCwd) {
+            $this->tryEmitFromShell(HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
         }
         return $result;
     }
@@ -129,16 +134,12 @@ trait HasShell
     public function registerCommand(string $name, \Closure $handler): void
     {
         $this->shell()->registerCommand($name, $handler);
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::CommandRegister, $name);
-        }
+        $this->tryEmitFromShell(HookEvent::CommandRegister, $name);
     }
 
     public function unregisterCommand(string $name): void
     {
         $this->shell()->unregisterCommand($name);
-        if (method_exists($this, 'emit')) {
-            $this->emit(HookEvent::CommandUnregister, $name);
-        }
+        $this->tryEmitFromShell(HookEvent::CommandUnregister, $name);
     }
 }

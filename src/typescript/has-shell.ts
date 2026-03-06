@@ -13,13 +13,20 @@ export interface HasShellOptions {
   cwd?: string;
   env?: Record<string, string>;
   allowedCommands?: Set<string>;
+  registerTool?: boolean;
 }
 
 export function HasShell<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
     _shell?: Shell;
 
-    _initHasShell(opts?: HasShellOptions): void {
+    private tryEmit(event: HookEvent, ...args: any[]): void {
+      if (typeof (this as any).emit === "function") {
+        void (this as any).emit(event, ...args);
+      }
+    }
+
+    initHasShell(opts?: HasShellOptions): void {
       const options = opts ?? {};
       if (typeof options.shell === "string") {
         this._shell = ShellRegistry.get(options.shell);
@@ -35,28 +42,28 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
       }
 
       // Wire onNotFound hook if HasHooks is composed
-      if (typeof (this as any)._emit === "function") {
+      if (typeof (this as any).emit === "function") {
         const self = this as any;
         this._shell!.onNotFound = (cmdName: string) => {
-          void self._emit(HookEvent.SHELL_NOT_FOUND, cmdName);
+          void self.emit(HookEvent.SHELL_NOT_FOUND, cmdName);
         };
       }
 
-      // Auto-register exec tool if UsesTools is composed
-      if ("register_tool" in this && typeof (this as any).register_tool === "function") {
+      // Auto-register exec tool if UsesTools is composed (opt-out via registerTool: false)
+      if ((options.registerTool ?? true) && "registerTool" in this && typeof (this as any).registerTool === "function") {
         this._registerShellTool();
       }
     }
 
-    _ensureHasShell(): void {
+    ensureHasShell(): void {
       if (!this._shell) {
-        this._initHasShell();
+        this.initHasShell();
       }
     }
 
     private _registerShellTool(): void {
       const self = this as any;
-      self.register_tool({
+      self.registerTool({
         name: "exec",
         description:
           "Execute a bash command in the virtual filesystem. " +
@@ -88,7 +95,7 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
     }
 
     get shell(): Shell {
-      this._ensureHasShell();
+      this.ensureHasShell();
       return this._shell!;
     }
 
@@ -97,32 +104,24 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
     }
 
     exec(command: string): ExecResult {
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.SHELL_CALL, command);
-      }
+      this.tryEmit(HookEvent.SHELL_CALL, command);
       const oldCwd = this.shell.cwd;
       const result = this.shell.exec(command);
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.SHELL_RESULT, command, result);
-        if (this.shell.cwd !== oldCwd) {
-          void (this as any)._emit(HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
-        }
+      this.tryEmit(HookEvent.SHELL_RESULT, command, result);
+      if (this.shell.cwd !== oldCwd) {
+        this.tryEmit(HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
       }
       return result;
     }
 
     registerCommand(name: string, handler: CmdHandler): void {
       this.shell.registerCommand(name, handler);
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.COMMAND_REGISTER, name);
-      }
+      this.tryEmit(HookEvent.COMMAND_REGISTER, name);
     }
 
     unregisterCommand(name: string): void {
       this.shell.unregisterCommand(name);
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.COMMAND_UNREGISTER, name);
-      }
+      this.tryEmit(HookEvent.COMMAND_UNREGISTER, name);
     }
   };
 }

@@ -1,19 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { StandardAgent } from "../../src/typescript/standard-agent.js";
 import { HookEvent } from "../../src/typescript/has-hooks.js";
-import { EventType } from "../../src/typescript/event-stream-parser.js";
+import { StructuredEvent } from "../../src/typescript/event-stream-parser.js";
 import { defineTool } from "../../src/typescript/uses-tools.js";
 
 describe("Integration", () => {
   it("standard agent with events", async () => {
     const agent = new StandardAgent({ model: "gpt-4" });
 
-    agent.register_event({
+    agent.registerEvent({
       name: "user_response",
       description: "Respond to user",
       schema: { data: { message: "string" } },
     });
-    agent.default_events = ["user_response"];
+    agent.defaultEvents = ["user_response"];
 
     const hookLog: string[] = [];
     agent.on(HookEvent.RUN_START, () => hookLog.push("start"));
@@ -31,20 +31,20 @@ describe("Integration", () => {
         required: ["a", "b"],
       },
     });
-    agent.register_tool(addTool);
+    agent.registerTool(addTool);
 
-    expect(agent._tools_schema().length).toBe(1);
+    expect(agent.toolsSchema().length).toBe(1);
 
     const busEvents: any[] = [];
     agent.bus.subscribe("user_response", async (e) => busEvents.push(e));
 
-    const active = agent._resolve_active_events();
+    const active = agent.resolveActiveEvents();
     expect(active.length).toBe(1);
 
-    const prompt = agent._build_event_prompt(active);
+    const prompt = agent.buildEventPrompt(active);
     expect(prompt).toContain("user_response");
 
-    await agent._emit(HookEvent.RUN_START);
+    await agent.emit(HookEvent.RUN_START);
     expect(hookLog).toEqual(["start"]);
   });
 
@@ -61,7 +61,7 @@ describe("Integration", () => {
     expect(result.stdout).toBe("hello world\n");
 
     // exec tool is auto-registered
-    expect(agent._tools_schema().some((s: any) => s.function.name === "exec")).toBe(true);
+    expect(agent.toolsSchema().some((s: any) => s.function.name === "exec")).toBe(true);
 
     // Pipes work
     agent.fs.write("/data/nums.txt", "3\n1\n2\n");

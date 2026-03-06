@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 
 export interface RunContext {
-  agent: any;
+  agent: BaseAgent;
   turn: number;
   metadata: Record<string, any>;
 }

@@ -113,8 +113,8 @@ export class SkillManager {
 
     const toolNames: string[] = [];
     for (const toolDef of skill.tools()) {
-      if (typeof this.agent.register_tool === "function") {
-        this.agent.register_tool(toolDef);
+      if (typeof this.agent.registerTool === "function") {
+        this.agent.registerTool(toolDef);
       }
       toolNames.push(toolDef.name);
     }
@@ -162,8 +162,8 @@ export class SkillManager {
 
     const toolNames = this.skillTools.get(name) ?? [];
     for (const toolName of toolNames) {
-      if (typeof this.agent.unregister_tool === "function") {
-        this.agent.unregister_tool(toolName);
+      if (typeof this.agent.unregisterTool === "function") {
+        this.agent.unregisterTool(toolName);
       }
     }
     this.skillTools.delete(name);
@@ -219,19 +219,16 @@ export class SkillManager {
   }
 
   private rebuildPromptMiddleware(): void {
-    if (this.agent._middleware && this.promptMw) {
-      const idx = this.agent._middleware.indexOf(this.promptMw);
-      if (idx !== -1) {
-        this.agent._middleware.splice(idx, 1);
-      }
+    if (this.promptMw && typeof this.agent.removeMiddleware === "function") {
+      this.agent.removeMiddleware(this.promptMw);
     }
 
     if (this.skills.size > 0) {
       this.promptMw = new SkillPromptMiddleware(
         Array.from(this.skills.values())
       );
-      if (this.agent._middleware) {
-        this.agent._middleware.push(this.promptMw);
+      if (typeof this.agent.use === "function") {
+        this.agent.use(this.promptMw);
       }
     } else {
       this.promptMw = null;
@@ -245,48 +242,44 @@ export class SkillManager {
 
 export function HasSkills<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _skillManager?: SkillManager;
+    skillManager?: SkillManager;
 
-    _ensureHasSkills(): void {
-      if (!this._skillManager) {
-        this._skillManager = new SkillManager(this);
+    private tryEmit(event: HookEvent, ...args: any[]): void {
+      if (typeof (this as any).emit === "function") {
+        void (this as any).emit(event, ...args);
+      }
+    }
+
+    ensureHasSkills(): void {
+      if (!this.skillManager) {
+        this.skillManager = new SkillManager(this);
       }
     }
 
     async mount(skill: Skill, config?: Record<string, any>): Promise<void> {
-      this._ensureHasSkills();
-      await this._skillManager!.mount(skill, config);
-
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.SKILL_SETUP, skill.name, skill);
-        void (this as any)._emit(HookEvent.SKILL_MOUNT, skill.name, skill);
-      }
+      this.ensureHasSkills();
+      await this.skillManager!.mount(skill, config);
+      this.tryEmit(HookEvent.SKILL_SETUP, skill.name, skill);
+      this.tryEmit(HookEvent.SKILL_MOUNT, skill.name, skill);
     }
 
     async unmount(name: string): Promise<void> {
-      this._ensureHasSkills();
-      const skill = this._skillManager!.mounted.get(name);
-
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.SKILL_TEARDOWN, name, skill);
-      }
-
-      await this._skillManager!.unmount(name);
-
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.SKILL_UNMOUNT, name, skill);
-      }
+      this.ensureHasSkills();
+      const skill = this.skillManager!.mounted.get(name);
+      this.tryEmit(HookEvent.SKILL_TEARDOWN, name, skill);
+      await this.skillManager!.unmount(name);
+      this.tryEmit(HookEvent.SKILL_UNMOUNT, name, skill);
     }
 
     async shutdown(): Promise<void> {
-      if (this._skillManager) {
-        await this._skillManager.shutdown();
+      if (this.skillManager) {
+        await this.skillManager.shutdown();
       }
     }
 
     get skills(): Map<string, Skill> {
-      this._ensureHasSkills();
-      return this._skillManager!.mounted;
+      this.ensureHasSkills();
+      return this.skillManager!.mounted;
     }
   };
 }

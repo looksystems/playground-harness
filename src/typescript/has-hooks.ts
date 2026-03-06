@@ -23,21 +23,29 @@ export enum HookEvent {
   SKILL_UNMOUNT = "skill_unmount",
   SKILL_SETUP = "skill_setup",
   SKILL_TEARDOWN = "skill_teardown",
+  HOOK_ERROR = "hook_error",
 }
 
 export function HasHooks<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _hooks: Map<HookEvent, Array<(...args: any[]) => any>> = new Map();
+    hooks: Map<HookEvent, Array<(...args: any[]) => any>> = new Map();
 
-    on(event: HookEvent, callback: (...args: any[]) => any): void {
-      if (!this._hooks.has(event)) {
-        this._hooks.set(event, []);
+    on(event: HookEvent, callback: (...args: any[]) => any): () => void {
+      if (!this.hooks.has(event)) {
+        this.hooks.set(event, []);
       }
-      this._hooks.get(event)!.push(callback);
+      this.hooks.get(event)!.push(callback);
+      return () => {
+        const cbs = this.hooks.get(event);
+        if (cbs) {
+          const idx = cbs.indexOf(callback);
+          if (idx !== -1) cbs.splice(idx, 1);
+        }
+      };
     }
 
-    async _emit(event: HookEvent, ...args: any[]): Promise<void> {
-      const callbacks = this._hooks.get(event);
+    async emit(event: HookEvent, ...args: any[]): Promise<void> {
+      const callbacks = this.hooks.get(event);
       if (!callbacks || callbacks.length === 0) {
         return;
       }
@@ -52,7 +60,9 @@ export function HasHooks<TBase extends Constructor>(Base: TBase) {
       );
       for (const r of results) {
         if (r.status === "rejected") {
-          console.warn(`Hook ${event} error: ${r.reason}`);
+          if (event !== HookEvent.HOOK_ERROR) {
+            void this.emit(HookEvent.HOOK_ERROR, event, r.reason);
+          }
         }
       }
     }

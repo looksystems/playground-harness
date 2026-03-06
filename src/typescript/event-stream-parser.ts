@@ -6,7 +6,7 @@ export interface StreamConfig {
   streamFields: string[];
 }
 
-export interface EventType {
+export interface StructuredEvent {
   name: string;
   description: string;
   schema: Record<string, any>;
@@ -77,10 +77,10 @@ function createChannel<T>(): Channel<T> {
 export type EventCallback = (event: ParsedEvent) => void;
 
 export class EventStreamParser {
-  private _eventTypes: Map<string, EventType>;
+  private _eventTypes: Map<string, StructuredEvent>;
   private _callbacks: EventCallback[] = [];
 
-  constructor(eventTypes: EventType[]) {
+  constructor(eventTypes: StructuredEvent[]) {
     this._eventTypes = new Map(eventTypes.map((et) => [et.name, et]));
   }
 

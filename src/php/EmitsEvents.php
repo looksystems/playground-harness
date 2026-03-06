@@ -6,7 +6,7 @@ namespace AgentHarness;
 
 trait EmitsEvents
 {
-    /** @var array<string, EventType> */
+    /** @var array<string, StructuredEvent> */
     private array $eventRegistry = [];
 
     /** @var list<string> */
@@ -14,7 +14,7 @@ trait EmitsEvents
 
     private ?MessageBus $messageBus = null;
 
-    public function registerEvent(EventType $eventType): void
+    public function registerEvent(StructuredEvent $eventType): void
     {
         $this->eventRegistry[$eventType->name] = $eventType;
     }
@@ -22,8 +22,8 @@ trait EmitsEvents
     /**
      * Resolve which events are active for a run.
      *
-     * @param list<string|EventType>|null $events
-     * @return list<EventType>
+     * @param list<string|StructuredEvent>|null $events
+     * @return list<StructuredEvent>
      */
     public function resolveActiveEvents(?array $events = null): array
     {
@@ -43,7 +43,7 @@ trait EmitsEvents
                 if (isset($this->eventRegistry[$item])) {
                     $result[] = $this->eventRegistry[$item];
                 }
-            } elseif ($item instanceof EventType) {
+            } elseif ($item instanceof StructuredEvent) {
                 $result[] = $item;
             }
         }
@@ -53,7 +53,7 @@ trait EmitsEvents
     /**
      * Build the prompt section describing available events.
      *
-     * @param list<EventType> $eventTypes
+     * @param list<StructuredEvent> $eventTypes
      */
     public function buildEventPrompt(array $eventTypes): string
     {

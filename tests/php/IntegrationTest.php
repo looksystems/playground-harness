@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace AgentHarness\Tests;
 
 use AgentHarness\BaseMiddleware as AgentBaseMiddleware;
-use AgentHarness\EventType;
+use AgentHarness\StructuredEvent;
 use AgentHarness\HookEvent;
 use AgentHarness\StandardAgent;
 use AgentHarness\ToolDef;
@@ -17,7 +17,7 @@ class IntegrationTest extends TestCase
     {
         $agent = new StandardAgent(model: 'gpt-4');
 
-        $agent->registerEvent(new EventType(
+        $agent->registerEvent(new StructuredEvent(
             name: 'user_response',
             description: 'Respond to user',
             schema: ['data' => ['message' => 'string']],

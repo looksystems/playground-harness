@@ -8,7 +8,7 @@ describe("HasHooks", () => {
     const obj = new HookUser();
     const received: string[] = [];
     obj.on(HookEvent.RUN_START, () => received.push("started"));
-    await obj._emit(HookEvent.RUN_START);
+    await obj.emit(HookEvent.RUN_START);
     expect(received).toEqual(["started"]);
   });
 
@@ -18,7 +18,7 @@ describe("HasHooks", () => {
     obj.on(HookEvent.TOOL_CALL, (name: string, args: any) =>
       received.push([name, args])
     );
-    await obj._emit(HookEvent.TOOL_CALL, "add", { a: 1 });
+    await obj.emit(HookEvent.TOOL_CALL, "add", { a: 1 });
     expect(received).toEqual([["add", { a: 1 }]]);
   });
 
@@ -27,7 +27,7 @@ describe("HasHooks", () => {
     const received: string[] = [];
     obj.on(HookEvent.RUN_END, () => received.push("a"));
     obj.on(HookEvent.RUN_END, () => received.push("b"));
-    await obj._emit(HookEvent.RUN_END);
+    await obj.emit(HookEvent.RUN_END);
     expect(new Set(received)).toEqual(new Set(["a", "b"]));
   });
 
@@ -37,7 +37,7 @@ describe("HasHooks", () => {
     obj.on(HookEvent.RUN_START, async () => {
       received.push("async");
     });
-    await obj._emit(HookEvent.RUN_START);
+    await obj.emit(HookEvent.RUN_START);
     expect(received).toEqual(["async"]);
   });
 
@@ -48,12 +48,38 @@ describe("HasHooks", () => {
       throw new Error("boom");
     });
     obj.on(HookEvent.RUN_START, () => received.push("ok"));
-    await obj._emit(HookEvent.RUN_START);
+    await obj.emit(HookEvent.RUN_START);
     expect(received).toEqual(["ok"]);
   });
 
   it("no hooks registered", async () => {
     const obj = new HookUser();
-    await obj._emit(HookEvent.RUN_START); // should not throw
+    await obj.emit(HookEvent.RUN_START); // should not throw
+  });
+
+  it("hook error emits HOOK_ERROR event", async () => {
+    const obj = new HookUser();
+    const errors: any[] = [];
+    obj.on(HookEvent.HOOK_ERROR, (event: HookEvent, reason: any) => {
+      errors.push({ event, message: reason?.message });
+    });
+    obj.on(HookEvent.RUN_START, () => {
+      throw new Error("boom");
+    });
+    await obj.emit(HookEvent.RUN_START);
+    expect(errors.length).toBe(1);
+    expect(errors[0].event).toBe(HookEvent.RUN_START);
+    expect(errors[0].message).toBe("boom");
+  });
+
+  it("on() returns unsubscribe function", async () => {
+    const obj = new HookUser();
+    const received: string[] = [];
+    const unsub = obj.on(HookEvent.RUN_START, () => received.push("a"));
+    await obj.emit(HookEvent.RUN_START);
+    expect(received).toEqual(["a"]);
+    unsub();
+    await obj.emit(HookEvent.RUN_START);
+    expect(received).toEqual(["a"]);
   });
 });

@@ -8,9 +8,19 @@ trait HasMiddleware
 {
     private array $middlewareStack = [];
 
-    public function use(Middleware $mw): void
+    public function use(Middleware $mw): static
     {
         $this->middlewareStack[] = $mw;
+        return $this;
+    }
+
+    public function removeMiddleware(Middleware $mw): static
+    {
+        $idx = array_search($mw, $this->middlewareStack, true);
+        if ($idx !== false) {
+            array_splice($this->middlewareStack, $idx, 1);
+        }
+        return $this;
     }
 
     public function runPre(array $messages, mixed $context): array

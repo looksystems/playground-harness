@@ -10,30 +10,37 @@ export interface ToolDef {
 }
 
 export function defineTool(def: ToolDef): ToolDef {
+  if (!def.name) throw new Error("ToolDef requires a name");
+  if (!def.execute) throw new Error("ToolDef requires an execute function");
+  if (!def.parameters) throw new Error("ToolDef requires parameters");
   return def;
 }
 
 export function UsesTools<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _tools: Map<string, ToolDef> = new Map();
+    tools: Map<string, ToolDef> = new Map();
 
-    register_tool(toolDef: ToolDef): void {
-      this._tools.set(toolDef.name, toolDef);
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.TOOL_REGISTER, toolDef);
+    private tryEmit(event: HookEvent, ...args: any[]): void {
+      if (typeof (this as any).emit === "function") {
+        void (this as any).emit(event, ...args);
       }
     }
 
-    unregister_tool(name: string): void {
-      this._tools.delete(name);
-      if (typeof (this as any)._emit === "function") {
-        void (this as any)._emit(HookEvent.TOOL_UNREGISTER, name);
-      }
+    registerTool(toolDef: ToolDef): this {
+      this.tools.set(toolDef.name, toolDef);
+      this.tryEmit(HookEvent.TOOL_REGISTER, toolDef);
+      return this;
     }
 
-    _tools_schema(): Record<string, any>[] {
+    unregisterTool(name: string): this {
+      this.tools.delete(name);
+      this.tryEmit(HookEvent.TOOL_UNREGISTER, name);
+      return this;
+    }
+
+    toolsSchema(): Record<string, any>[] {
       const schema: Record<string, any>[] = [];
-      for (const t of this._tools.values()) {
+      for (const t of this.tools.values()) {
         schema.push({
           type: "function",
           function: {
@@ -46,8 +53,8 @@ export function UsesTools<TBase extends Constructor>(Base: TBase) {
       return schema;
     }
 
-    async _execute_tool(name: string, args: Record<string, any>): Promise<string> {
-      const td = this._tools.get(name);
+    async executeTool(name: string, args: Record<string, any>): Promise<string> {
+      const td = this.tools.get(name);
       if (!td) {
         return JSON.stringify({ error: `Unknown tool: ${name}` });
       }

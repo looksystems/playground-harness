@@ -1,30 +1,30 @@
-import { EventType, StreamConfig } from "./event-stream-parser.js";
+import { StructuredEvent, StreamConfig } from "./event-stream-parser.js";
 import { MessageBus } from "./message-bus.js";
 
-export { EventType, StreamConfig };
+export { StructuredEvent, StreamConfig };
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
 export function EmitsEvents<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _event_registry: Map<string, EventType> = new Map();
-    default_events: string[] = [];
-    _bus: MessageBus = new MessageBus();
+    eventRegistry: Map<string, StructuredEvent> = new Map();
+    defaultEvents: string[] = [];
+    private _bus: MessageBus = new MessageBus();
 
-    register_event(eventType: EventType): void {
-      this._event_registry.set(eventType.name, eventType);
+    registerEvent(eventType: StructuredEvent): void {
+      this.eventRegistry.set(eventType.name, eventType);
     }
 
-    _resolve_active_events(events?: (string | EventType)[]): EventType[] {
+    resolveActiveEvents(events?: (string | StructuredEvent)[]): StructuredEvent[] {
       if (events === undefined) {
-        return this.default_events
-          .filter((name) => this._event_registry.has(name))
-          .map((name) => this._event_registry.get(name)!);
+        return this.defaultEvents
+          .filter((name) => this.eventRegistry.has(name))
+          .map((name) => this.eventRegistry.get(name)!);
       }
-      const result: EventType[] = [];
+      const result: StructuredEvent[] = [];
       for (const item of events) {
         if (typeof item === "string") {
-          const et = this._event_registry.get(item);
+          const et = this.eventRegistry.get(item);
           if (et) result.push(et);
         } else {
           result.push(item);
@@ -33,7 +33,7 @@ export function EmitsEvents<TBase extends Constructor>(Base: TBase) {
       return result;
     }
 
-    _build_event_prompt(eventTypes: EventType[]): string {
+    buildEventPrompt(eventTypes: StructuredEvent[]): string {
       if (eventTypes.length === 0) return "";
       const sections: string[] = [];
       sections.push("# Event Emission");

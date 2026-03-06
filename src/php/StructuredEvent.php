@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AgentHarness;
 
-class EventType
+class StructuredEvent
 {
     public function __construct(
         public readonly string $name,

@@ -21,7 +21,7 @@ class SkillManager
     private ?SkillPromptMiddleware $promptMw = null;
 
     public function __construct(
-        private readonly mixed $agent,
+        private readonly object $agent,
     ) {
     }
 
@@ -65,7 +65,7 @@ class SkillManager
         // Register hooks
         if (method_exists($this->agent, 'on')) {
             foreach ($skill->hooks() as $eventValue => $callbacks) {
-                $event = HookEvent::from($eventValue);
+                $event = $eventValue instanceof HookEvent ? $eventValue : HookEvent::from($eventValue);
                 foreach ($callbacks as $callback) {
                     $this->agent->on($event, $callback);
                 }
