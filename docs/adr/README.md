@@ -47,8 +47,3 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0010](0010-php-generator-streaming.md) | PHP Generator Streaming |
 | [0011](0011-custom-yaml-parser-php.md) | Custom YAML Parser for PHP |
 
-### Patterns
-
-| ADR | Decision |
-|-----|----------|
-| [0017](0017-skill-system-as-example-pattern.md) | ~~Skill System as Example Pattern~~ (Superseded by 0024) |
