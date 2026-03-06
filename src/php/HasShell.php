@@ -6,42 +6,45 @@ namespace AgentHarness;
 
 trait HasShell
 {
-    private ?Shell $shell = null;
+    private ?ShellDriverInterface $shell = null;
 
     /**
      * Initialize the HasShell trait.
      *
-     * @param string|Shell|null $shell Registry name, Shell instance, or null for default
+     * @param string|Shell|ShellDriverInterface|null $shell Registry name, Shell instance, driver, or null for default
      * @param string $cwd Working directory
      * @param array<string, string> $env Environment variables
      * @param list<string>|null $allowedCommands Restrict available commands
      * @param bool $registerTool Whether to auto-register the exec tool (requires UsesTools)
+     * @param string|null $driver Named driver from ShellDriverFactory
      */
     public function initHasShell(
-        string|Shell|null $shell = null,
+        string|Shell|ShellDriverInterface|null $shell = null,
         string $cwd = '/home/user',
         array $env = [],
         ?array $allowedCommands = null,
         bool $registerTool = true,
+        ?string $driver = null,
     ): void {
         if (is_string($shell)) {
-            $this->shell = ShellRegistry::get($shell);
-        } elseif ($shell instanceof Shell) {
+            $this->shell = BuiltinShellDriver::fromShell(ShellRegistry::get($shell));
+        } elseif ($shell instanceof ShellDriverInterface) {
             $this->shell = $shell;
+        } elseif ($shell instanceof Shell) {
+            $this->shell = BuiltinShellDriver::fromShell($shell);
         } else {
-            $this->shell = new Shell(
-                fs: new VirtualFS(),
-                cwd: $cwd,
-                env: $env,
-                allowedCommands: $allowedCommands,
-            );
+            $this->shell = ShellDriverFactory::create($driver, [
+                'cwd' => $cwd,
+                'env' => $env,
+                'allowedCommands' => $allowedCommands,
+            ]);
         }
 
         if (method_exists($this, 'emit')) {
             $self = $this;
-            $this->shell->onNotFound = function (string $cmdName) use ($self) {
+            $this->shell->setOnNotFound(function (string $cmdName) use ($self) {
                 $self->emit(HookEvent::ShellNotFound, $cmdName);
-            };
+            });
         }
 
         // Auto-register exec tool if UsesTools trait is composed (opt-out via registerTool: false)
@@ -101,25 +104,25 @@ trait HasShell
         $this->registerTool($tool);
     }
 
-    public function shell(): Shell
+    public function shell(): ShellDriverInterface
     {
         $this->ensureHasShell();
         return $this->shell;
     }
 
-    public function fs(): VirtualFS
+    public function fs(): FilesystemDriver
     {
-        return $this->shell()->fs;
+        return $this->shell()->fs();
     }
 
     public function execCommand(string $command): ExecResult
     {
         Helpers::tryEmit($this,HookEvent::ShellCall, $command);
-        $oldCwd = $this->shell()->cwd;
+        $oldCwd = $this->shell()->cwd();
         $result = $this->shell()->exec($command);
         Helpers::tryEmit($this,HookEvent::ShellResult, $command, $result);
-        if ($this->shell()->cwd !== $oldCwd) {
-            Helpers::tryEmit($this,HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
+        if ($this->shell()->cwd() !== $oldCwd) {
+            Helpers::tryEmit($this,HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd());
         }
         return $result;
     }

@@ -9,6 +9,7 @@ use AgentHarness\HasHooks;
 use AgentHarness\HasShell;
 use AgentHarness\HookEvent;
 use AgentHarness\Shell;
+use AgentHarness\ShellDriverInterface;
 use AgentHarness\ShellRegistry;
 use AgentHarness\StandardAgent;
 use AgentHarness\ToolDef;
@@ -55,7 +56,7 @@ class HasShellTest extends TestCase
         $obj = new ShellOnly();
         // shell() should auto-init
         $shell = $obj->shell();
-        $this->assertInstanceOf(Shell::class, $shell);
+        $this->assertInstanceOf(ShellDriverInterface::class, $shell);
     }
 
     public function testExecCommand(): void

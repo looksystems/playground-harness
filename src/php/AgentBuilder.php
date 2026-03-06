@@ -25,6 +25,7 @@ class AgentBuilder
     /** @var list<array{Skill, array<string, mixed>}> */
     private array $skills = [];
     private ?array $shellOpts = null;
+    private ?string $driver = null;
     /** @var list<array{string, \Closure}> */
     private array $commands = [];
 
@@ -131,6 +132,12 @@ class AgentBuilder
         return $this;
     }
 
+    public function driver(string $name): static
+    {
+        $this->driver = $name;
+        return $this;
+    }
+
     public function command(string $name, \Closure $handler): static
     {
         $this->commands[] = [$name, $handler];
@@ -167,7 +174,7 @@ class AgentBuilder
         }
 
         if ($this->shellOpts !== null) {
-            $agent->initHasShell(...$this->shellOpts);
+            $agent->initHasShell(...$this->shellOpts, driver: $this->driver);
         }
 
         foreach ($this->commands as [$name, $handler]) {
