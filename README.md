@@ -38,7 +38,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 
 Design decisions are documented in [docs/adr/](docs/adr/README.md).
 
-## Todo
+## Notes
 
 Streamed events currently assumes last field is streamed - this needs to be reviewed and api adjusted accordingly.
 
