@@ -1,6 +1,6 @@
 # Agent Harness
 
-> **Warning:** This repository is for exploration and planning purposes only. It is not intended for production use. APIs, structure, and documentation may change without notice. Written entirely using Claude Code in a a few hours, just to try out "what if".
+> **Warning:** This repository is for exploration and planning purposes only. It is not intended for production use. APIs, structure, and documentation may change without notice. Written entirely using Claude Code in a few hours, just to try out "what if".
 
 A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, and PHP with trait/mixin-based composition.
 
