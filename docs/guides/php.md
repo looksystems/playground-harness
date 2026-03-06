@@ -36,7 +36,7 @@ $agent = new StandardAgent(
 $result = $agent->run([['role' => 'user', 'content' => 'Hello']]);
 ```
 
-Under the hood, `StandardAgent` composes all four traits:
+Under the hood, `StandardAgent` composes all six traits:
 
 ```php
 class StandardAgent extends BaseAgent
@@ -45,6 +45,8 @@ class StandardAgent extends BaseAgent
     use HasMiddleware;
     use UsesTools;
     use EmitsEvents;
+    use HasShell;
+    use HasCommands;
 }
 ```
 
@@ -62,7 +64,7 @@ class MyAgent extends BaseAgent
 
 ## Lifecycle Hooks
 
-`HookEvent` is a string-backed enum with 18 cases. Because PHP is synchronous,
+`HookEvent` is a string-backed enum with 22 cases. Because PHP is synchronous,
 dispatch is always sequential.
 
 ```php
@@ -291,3 +293,75 @@ $agent->on(HookEvent::ShellCwd, function (string $old, string $new) {
 ```
 
 See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
+
+## Slash Commands
+
+The `HasCommands` trait enables user-facing slash commands (like `/help`, `/reset`) that can optionally be exposed to the LLM as tools.
+
+### Registering commands
+
+```php
+use AgentHarness\CommandDef;
+
+$agent->registerSlashCommand(CommandDef::make(
+    name: 'help',
+    description: 'Show help information',
+    parameters: ['type' => 'object', 'properties' => new \stdClass()],
+    execute: fn(array $args) => 'Available commands: /help, /status, /reset',
+));
+
+// With llmVisible: false to hide from LLM
+$agent->registerSlashCommand(CommandDef::make(
+    name: 'debug',
+    description: 'Toggle debug mode',
+    parameters: ['type' => 'object', 'properties' => new \stdClass()],
+    execute: fn(array $args) => 'Debug mode toggled',
+    llmVisible: false,
+));
+```
+
+Commands with `llmVisible: true` (the default) are automatically registered as `slash_{name}` tools when `UsesTools` is also composed. Disable per-agent with `initHasCommands(llmCommandsEnabled: false)`.
+
+### Executing commands
+
+```php
+$result = $agent->executeSlashCommand('help', []);
+echo $result; // "Available commands: /help, /status, /reset"
+```
+
+### Intercepting slash commands from text
+
+```php
+$parsed = $agent->interceptSlashCommand('/help some args');
+// ['help', ['input' => 'some args']]
+
+$parsed = $agent->interceptSlashCommand('hello');
+// null
+```
+
+### SlashCommandMiddleware
+
+Opt-in middleware that intercepts user messages starting with `/`:
+
+```php
+use AgentHarness\SlashCommandMiddleware;
+
+$agent->use(new SlashCommandMiddleware());
+```
+
+### Slash command hooks
+
+When `HasHooks` is also composed, slash command operations emit lifecycle hooks:
+
+```php
+use AgentHarness\HookEvent;
+
+$agent->on(HookEvent::SlashCommandRegister, function (CommandDef $def) {
+    echo "Registered: /{$def->name}\n";
+});
+$agent->on(HookEvent::SlashCommandCall, function (string $name, array $args) {
+    echo "Calling: /{$name}\n";
+});
+```
+
+See [ADR 0023](../adr/0023-has-commands-mixin.md) for design details.

@@ -17,6 +17,7 @@ Along with typical agentic features:
  * skills
  * hooks
  * middleware
+ * slash commands
 
 For now, mcp support has been deferred, as integrations would be better implemented with a combination of a custom skill and cli command.
 

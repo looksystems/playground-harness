@@ -11,4 +11,5 @@ class StandardAgent extends BaseAgent
     use UsesTools;
     use EmitsEvents;
     use HasShell;
+    use HasCommands;
 }

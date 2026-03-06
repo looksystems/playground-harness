@@ -4,5 +4,6 @@ import { HasMiddleware } from "./has-middleware.js";
 import { UsesTools } from "./uses-tools.js";
 import { EmitsEvents } from "./emits-events.js";
 import { HasShell } from "./has-shell.js";
+import { HasCommands } from "./has-commands.js";
 
-export const StandardAgent = HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent)))));
+export const StandardAgent = HasCommands(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))));

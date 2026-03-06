@@ -19,6 +19,10 @@ export enum HookEvent {
   TOOL_UNREGISTER = "tool_unregister",
   COMMAND_REGISTER = "command_register",
   COMMAND_UNREGISTER = "command_unregister",
+  SLASH_COMMAND_REGISTER = "slash_command_register",
+  SLASH_COMMAND_UNREGISTER = "slash_command_unregister",
+  SLASH_COMMAND_CALL = "slash_command_call",
+  SLASH_COMMAND_RESULT = "slash_command_result",
 }
 
 export function HasHooks<TBase extends Constructor>(Base: TBase) {

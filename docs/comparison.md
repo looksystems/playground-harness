@@ -8,7 +8,7 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 |--------|--------|------------|-----|
 | **Trait/Mixin Mechanism** | Multiple inheritance mixins | Function-based mixins (`HasX<TBase>(Base)`) | Native `trait` keyword |
 | **Mixin Init Strategy** | Lazy init via `hasattr` + `__init_has_X__()` | Inline field initialization in anonymous class | PHP trait properties initialize on first use |
-| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents): pass` | `const StandardAgent = EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; }` |
+| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasCommands): pass` | `const StandardAgent = HasCommands(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasCommands; }` |
 | **Async Model** | `async`/`await` throughout, `asyncio` | `async`/`await`, Promises | Synchronous (no async runtime) |
 | **LLM Client** | litellm (multi-provider) | OpenAI SDK | Guzzle HTTP (raw API calls) |
 | **YAML Parsing** | PyYAML (`yaml.safe_load`) | `yaml` npm package (`YAML.parse`) | Custom `parseSimpleYaml()` (zero dependencies) |
@@ -18,7 +18,7 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 | **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` |
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
-| **Test Count** | 47 | 44 | 44 (82 assertions) |
+| **Test Count** | 227 | 279 | 271 |
 | **VFS Content Types** | `str \| bytes` | `string` only | `string` only |
 | **Lazy File Providers** | Synchronous callables | Async (returns `Promise<string>`) | Synchronous closures |
 | **Shell Registry** | Global singleton (module-level) | Global singleton (module-level) | Global singleton (static class) |
@@ -70,3 +70,9 @@ Python's VirtualFS supports `str | bytes` content, allowing binary files (images
 TypeScript's lazy file providers are async (returning `Promise<string>`) because the VFS `read()` method is async. This allows lazy providers to fetch from APIs or databases. Python and PHP lazy providers are synchronous callables.
 
 The `HasShell` mixin follows the same language-specific patterns as other mixins: Python multiple inheritance, TypeScript function-based mixin, PHP native trait. In all three, it auto-registers the `exec` tool when `UsesTools` is also composed, and works independently for programmatic use when it isn't.
+
+### 7. Slash Commands
+
+The `HasCommands` mixin is consistent across all three languages. Commands are registered as `CommandDef` instances, optionally auto-registered as `slash_{name}` tools (controlled per-command by `llm_visible` and per-agent by `llm_commands_enabled`), and emit four `slash_command_*` hook events when `HasHooks` is composed. Python additionally provides a `@command` decorator (mirroring `@tool`) for ergonomic registration with automatic parameter schema generation from type hints.
+
+The `SlashCommandMiddleware` in all three languages follows the same logic: intercept the last user message if it starts with `/`, parse the command name and arguments, execute, and replace the message content with the result.

@@ -95,6 +95,13 @@ class UsesTools:
         if hasattr(self, "_emit_fire_and_forget"):
             self._emit_fire_and_forget(HookEvent.TOOL_REGISTER, td)
 
+    def unregister_tool(self, name: str) -> None:
+        if not hasattr(self, "_tools"):
+            self.__init_uses_tools__()
+        self._tools.pop(name, None)
+        if hasattr(self, "_emit_fire_and_forget"):
+            self._emit_fire_and_forget(HookEvent.TOOL_UNREGISTER, name)
+
     def _tools_schema(self) -> list[dict[str, Any]]:
         if not hasattr(self, "_tools"):
             self.__init_uses_tools__()

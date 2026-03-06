@@ -17,6 +17,14 @@ trait UsesTools
         }
     }
 
+    public function unregisterTool(string $name): void
+    {
+        unset($this->tools[$name]);
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::ToolUnregister, $name);
+        }
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */

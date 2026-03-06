@@ -43,9 +43,9 @@ This gives you lifecycle hooks and tool support without middleware or event stre
 
 ## Lifecycle Hooks
 
-Eighteen hook events are defined in `HookEvent(str, Enum)`:
+Twenty-two hook events are defined in `HookEvent(str, Enum)`:
 
-`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`.
+`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`, `slash_command_register`, `slash_command_unregister`, `slash_command_call`, `slash_command_result`.
 
 Register handlers with `agent.on()`:
 
@@ -236,3 +236,74 @@ agent.on(HookEvent.SHELL_CWD, lambda old, new: print(f"cd {old} -> {new}"))
 ```
 
 Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
+
+## Slash Commands
+
+The `HasCommands` mixin enables user-facing slash commands (like `/help`, `/reset`) that can optionally be exposed to the LLM as tools.
+
+### Registering commands
+
+Two registration methods are available: the `@command` decorator or the `CommandDef` dataclass.
+
+```python
+from src.python.has_commands import command, CommandDef
+
+# Decorator approach
+@command(description="Show help information")
+def help(args: dict) -> str:
+    return "Available commands: /help, /status, /reset"
+
+agent.register_slash_command(help)
+
+# CommandDef approach
+agent.register_slash_command(CommandDef(
+    name="status",
+    description="Show agent status",
+    handler=lambda args: "Status: running",
+    parameters={"type": "object", "properties": {}},
+))
+```
+
+Commands with `llm_visible=True` (the default) are automatically registered as `slash_{name}` tools when `UsesTools` is also composed. Disable per-command with `llm_visible=False` or per-agent with `__init_has_commands__(llm_commands_enabled=False)`.
+
+### Executing commands
+
+```python
+result = agent.execute_slash_command("help", {})
+print(result)  # "Available commands: /help, /status, /reset"
+```
+
+### Intercepting slash commands from text
+
+```python
+parsed = agent.intercept_slash_command("/help some args")
+# ("help", {"input": "some args"})
+
+parsed = agent.intercept_slash_command("hello")
+# None
+```
+
+### SlashCommandMiddleware
+
+Opt-in middleware that intercepts user messages starting with `/`:
+
+```python
+from src.python.slash_command_middleware import SlashCommandMiddleware
+
+agent.use(SlashCommandMiddleware())
+```
+
+When a user sends `/help`, the middleware executes the command and replaces the message content with the result before it reaches the LLM.
+
+### Slash command hooks
+
+When `HasHooks` is also composed, slash command operations emit lifecycle hooks:
+
+```python
+from src.python.has_hooks import HookEvent
+
+agent.on(HookEvent.SLASH_COMMAND_REGISTER, lambda name: print(f"Registered: /{name}"))
+agent.on(HookEvent.SLASH_COMMAND_CALL, lambda name, args: print(f"Calling: /{name}"))
+```
+
+See [ADR 0023](../adr/0023-has-commands-mixin.md) for design details.

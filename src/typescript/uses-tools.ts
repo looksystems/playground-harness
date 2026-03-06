@@ -24,6 +24,13 @@ export function UsesTools<TBase extends Constructor>(Base: TBase) {
       }
     }
 
+    unregister_tool(name: string): void {
+      this._tools.delete(name);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.TOOL_UNREGISTER, name);
+      }
+    }
+
     _tools_schema(): Record<string, any>[] {
       const schema: Record<string, any>[] = [];
       for (const t of this._tools.values()) {
