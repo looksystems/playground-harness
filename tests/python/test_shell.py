@@ -308,10 +308,9 @@ class TestShell:
         assert r.stdout == "a\nb\nc\n"
 
     def test_while_loop(self):
-        r = self.shell.exec("i=0; while test $i -lt 3; do echo $i; i=$(echo $i | sed 's/0/1/;s/1/2/;s/2/3/'); done")
-        # This is a bit tricky but we can use a simpler approach
-        # Just test a basic while with a counter using for
-        pass
+        r = self.shell.exec("X=3; while [ $X -gt 0 ]; do echo $X; X=$(($X - 1)); done")
+        assert r.stdout == "3\n2\n1\n"
+        assert r.exit_code == 0
 
     def test_while_max_iterations(self):
         shell = Shell(self.fs, max_iterations=5)
@@ -460,10 +459,12 @@ class TestShell:
 
     # -- Negative substring offset -----------------------------------------
 
-    def test_param_expansion_negative_offset(self):
+    def test_param_expansion_negative_substring_offset(self):
+        """${X:-2} is parsed as substring offset -2 (last 2 chars), not default-value syntax.
+        This diverges from standard bash where ${X:-2} means 'default 2 if unset'.
+        In bash, negative substring offset requires a space: ${X: -2}."""
         shell = Shell(self.fs, env={"X": "hello"})
         r = shell.exec("echo ${X:-2}")
-        # ${X:-2} matches substring pattern with offset -2 (last 2 chars)
         assert r.stdout.strip() == "lo"
 
 

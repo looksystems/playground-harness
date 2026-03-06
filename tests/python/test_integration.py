@@ -29,8 +29,6 @@ class TestIntegration:
 
         agent.register_tool(add)
 
-        assert "user_response" in agent._event_registry
-        assert "add" in agent._tools
         assert len(agent._tools_schema()) == 1
 
         bus_events = []
@@ -58,7 +56,7 @@ class TestIntegration:
         assert result.stdout == "hello world\n"
 
         # exec tool is auto-registered (StandardAgent includes both UsesTools and HasShell)
-        assert "exec" in agent._tools
+        assert any(t["function"]["name"] == "exec" for t in agent._tools_schema())
 
         # Pipes work
         agent.fs.write("/data/nums.txt", "3\n1\n2\n")

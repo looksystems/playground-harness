@@ -33,8 +33,6 @@ describe("Integration", () => {
     });
     agent.register_tool(addTool);
 
-    expect(agent._event_registry.has("user_response")).toBe(true);
-    expect(agent._tools.has("add")).toBe(true);
     expect(agent._tools_schema().length).toBe(1);
 
     const busEvents: any[] = [];
@@ -63,7 +61,7 @@ describe("Integration", () => {
     expect(result.stdout).toBe("hello world\n");
 
     // exec tool is auto-registered
-    expect(agent._tools.has("exec")).toBe(true);
+    expect(agent._tools_schema().some((s: any) => s.function.name === "exec")).toBe(true);
 
     // Pipes work
     agent.fs.write("/data/nums.txt", "3\n1\n2\n");

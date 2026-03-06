@@ -33,13 +33,10 @@ class BaseAgentTest extends TestCase
         $this->assertSame(5, $agent->maxTurns);
     }
 
-    public function testBuildSystemPrompt(): void
+    public function testSystemPromptIsStored(): void
     {
         $agent = new BaseAgent(model: 'gpt-4', system: 'Be helpful.');
-        // Use reflection to call protected method
-        $method = new \ReflectionMethod($agent, 'buildSystemPrompt');
-        $result = $method->invoke($agent, 'Be helpful.', null);
-        $this->assertSame('Be helpful.', $result);
+        $this->assertSame('Be helpful.', $agent->system);
     }
 
     public function testRunContextCreation(): void

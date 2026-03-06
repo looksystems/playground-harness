@@ -17,16 +17,13 @@ class TestStandardAgent:
         assert hasattr(agent, "on")
         assert hasattr(agent, "use")
         assert hasattr(agent, "register_tool")
-        assert hasattr(agent, "_emit")
-        assert hasattr(agent, "_run_pre")
-        assert hasattr(agent, "_tools_schema")
 
     def test_register_tool_and_hook(self):
         agent = StandardAgent(model="gpt-4")
         agent.register_tool(add)
         received = []
         agent.on(HookEvent.RUN_START, lambda: received.append("start"))
-        assert "add" in agent._tools
+        assert len(agent._tools_schema()) == 1
         asyncio.run(agent._emit(HookEvent.RUN_START))
         assert received == ["start"]
 

@@ -35,7 +35,7 @@ describe("UsesTools", () => {
   it("register tool via defineTool", () => {
     const obj = new ToolUser();
     obj.register_tool(addTool);
-    expect(obj._tools.has("add")).toBe(true);
+    expect(obj._tools_schema().some((s) => s.function.name === "add")).toBe(true);
   });
 
   it("register tooldef directly", () => {
@@ -47,7 +47,7 @@ describe("UsesTools", () => {
       parameters: { type: "object", properties: { x: { type: "integer" } } },
     };
     obj.register_tool(td);
-    expect(obj._tools.has("custom")).toBe(true);
+    expect(obj._tools_schema().some((s) => s.function.name === "custom")).toBe(true);
   });
 
   it("tools_schema", () => {
