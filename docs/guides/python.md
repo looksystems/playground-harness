@@ -199,8 +199,8 @@ The `HasShell` mixin provides an in-memory virtual filesystem and shell interpre
 ### Standalone usage
 
 ```python
-from virtual_fs import VirtualFS
-from shell import Shell
+from src.python.virtual_fs import VirtualFS
+from src.python.shell import Shell
 
 fs = VirtualFS()
 fs.write("/data/users.json", json.dumps(users))
@@ -223,8 +223,8 @@ response = await agent.run("What tables reference user_id?")
 ### Shell registry
 
 ```python
-from shell import ShellRegistry, Shell
-from virtual_fs import VirtualFS
+from src.python.shell import ShellRegistry, Shell
+from src.python.virtual_fs import VirtualFS
 
 ShellRegistry.register("data-explorer", Shell(
     fs=VirtualFS({"/schema/users.yaml": schema}),
@@ -241,8 +241,8 @@ agent.fs.write("/data/results.json", results)  # only this agent sees this
 Register domain-specific commands that work like built-ins — composable with pipes, redirects, and control flow:
 
 ```python
-from shell import Shell, ExecResult
-from virtual_fs import VirtualFS
+from src.python.shell import Shell, ExecResult
+from src.python.virtual_fs import VirtualFS
 
 shell = Shell(fs=VirtualFS())
 
@@ -291,10 +291,14 @@ The `HasSkills` mixin enables mountable capability bundles that combine tools, i
 from src.python.has_skills import Skill
 
 class WebBrowsingSkill(Skill):
-    name = "web_browsing"
-    description = "Browse the web and extract content"
-    version = "1.0.0"
-    instructions = "You can browse the web using the fetch_page tool."
+    @property
+    def name(self): return "web_browsing"
+    @property
+    def description(self): return "Browse the web and extract content"
+    @property
+    def version(self): return "1.0.0"
+    @property
+    def instructions(self): return "You can browse the web using the fetch_page tool."
 
     async def setup(self, ctx):
         ctx.session = aiohttp.ClientSession()
@@ -336,9 +340,9 @@ Unmounting runs `teardown()` and removes all tools, middleware, hooks, and comma
 Middleware that auto-injects mounted skill instructions into the system prompt:
 
 ```python
-from src.python.skill_prompt_middleware import SkillPromptMiddleware
+from src.python.has_skills import SkillPromptMiddleware
 
-agent.use(SkillPromptMiddleware())
+agent.use(SkillPromptMiddleware(agent.skills))
 ```
 
 ### Skill hooks
@@ -348,8 +352,8 @@ When `HasHooks` is also composed, skill operations emit lifecycle hooks:
 ```python
 from src.python.has_hooks import HookEvent
 
-agent.on(HookEvent.SKILL_MOUNT, lambda skill: print(f"Mounted: {skill.name}"))
-agent.on(HookEvent.SKILL_SETUP, lambda skill: print(f"Setting up: {skill.name}"))
+agent.on(HookEvent.SKILL_MOUNT, lambda name: print(f"Mounted: {name}"))
+agent.on(HookEvent.SKILL_SETUP, lambda name: print(f"Setting up: {name}"))
 ```
 
 See [ADR 0024](../adr/0024-has-skills-mixin.md) for design details.

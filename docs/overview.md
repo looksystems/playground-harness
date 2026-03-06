@@ -7,7 +7,7 @@ Agent Harness provides a small set of well-defined building blocks that can be m
 ## Key Capabilities
 
 - **Trait/mixin composition** — Mix and match agent capabilities (hooks, middleware, tools, events, shell, skills) via language-native composition patterns.
-- **Lifecycle hooks** — 22 hook events covering the full agent run cycle plus shell, registration, and skill events: `run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`, `skill_mount`, `skill_unmount`, `skill_setup`, `skill_teardown`.
+- **Lifecycle hooks** — 22 hook events in Python, 23 in TypeScript/PHP (which add `hook_error`), covering the full agent run cycle plus shell, registration, and skill events: `run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`, `skill_mount`, `skill_unmount`, `skill_setup`, `skill_teardown`.
 - **Middleware pipeline** — Sequential pre/post processing of messages with ordered, composable middleware.
 - **Tool registration** — Declarative tool definitions with automatic schema generation.
 - **Skills** — Mountable capability bundles combining tools, instructions, middleware, hooks, and lifecycle management. Skills subsume slash commands -- any command is just a skill with a single tool.

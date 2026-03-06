@@ -6,14 +6,13 @@ The TypeScript implementation of the agent harness framework uses function-based
 
 ## Installation
 
-Dependencies are declared in `src/typescript/package.json`:
+Dependencies are declared in the root `package.json`:
 
 - **Runtime**: `openai`, `yaml`
 - **Dev**: `vitest`, `typescript`
 - **Module format**: ESM (ES2022 target)
 
 ```bash
-cd src/typescript
 npm install
 ```
 
@@ -75,7 +74,7 @@ const agent = new MyAgent({ model: "gpt-4" });
 
 ## Lifecycle Hooks
 
-The `HookEvent` enum defines the same 22 lifecycle events as the Python implementation. Dispatch uses `Promise.allSettled` so all registered callbacks run concurrently and a single failure does not short-circuit the rest.
+The `HookEvent` enum defines 23 lifecycle events (the same 22 as Python plus `HOOK_ERROR`). Dispatch uses `Promise.allSettled` so all registered callbacks run concurrently and a single failure does not short-circuit the rest.
 
 ```typescript
 import { HookEvent } from "./has-hooks.js";
@@ -131,7 +130,7 @@ const addTool = defineTool({
   },
   execute: ({ a, b }) => a + b,
 });
-agent.register_tool(addTool);
+agent.registerTool(addTool);
 ```
 
 ## Events
@@ -139,15 +138,15 @@ agent.register_tool(addTool);
 Define structured event types and register them on an agent that includes the `EmitsEvents` mixin.
 
 ```typescript
-import { EventType, StreamConfig } from "./emits-events.js";
+import { StructuredEvent, StreamConfig } from "./event-stream-parser.js";
 
-const progressEvent: EventType = {
+const progressEvent: StructuredEvent = {
   name: "progress",
   description: "Report task progress",
   schema: { percent: "integer", message: "string" },
 };
-agent.register_event(progressEvent);
-agent.default_events = ["progress"];
+agent.registerEvent(progressEvent);
+agent.defaultEvents = ["progress"];
 ```
 
 ## Streaming Events
@@ -155,7 +154,7 @@ agent.default_events = ["progress"];
 An event type can declare streaming support. Fields listed in `streamFields` will be delivered incrementally as an `AsyncIterable<string>`.
 
 ```typescript
-const codeEvent: EventType = {
+const codeEvent: StructuredEvent = {
   name: "code_output",
   description: "Stream generated code",
   schema: { language: "string", code: "string" },
@@ -201,8 +200,8 @@ The `HasShell` mixin provides an in-memory virtual filesystem and shell interpre
 ### Standalone usage
 
 ```typescript
-import { VirtualFS } from "./virtual-fs";
-import { Shell } from "./shell";
+import { VirtualFS } from "./virtual-fs.js";
+import { Shell } from "./shell.js";
 
 const fs = new VirtualFS();
 fs.write("/data/users.json", JSON.stringify(users));
@@ -224,8 +223,8 @@ const response = await agent.run("What tables reference user_id?");
 ### Shell registry
 
 ```typescript
-import { ShellRegistry, Shell } from "./shell";
-import { VirtualFS } from "./virtual-fs";
+import { ShellRegistry, Shell } from "./shell.js";
+import { VirtualFS } from "./virtual-fs.js";
 
 ShellRegistry.register("data-explorer", new Shell(
   new VirtualFS({ "/schema/users.yaml": schema }),
@@ -241,7 +240,7 @@ agent.fs.write("/data/results.json", results);  // only this agent sees this
 Register domain-specific commands that work like built-ins — composable with pipes, redirects, and control flow:
 
 ```typescript
-import { Shell, CmdHandler } from "./shell";
+import { Shell, CmdHandler } from "./shell.js";
 
 const shell = new Shell({ fs: new VirtualFS(), cwd: "/" });
 
@@ -336,9 +335,9 @@ Unmounting runs `teardown()` and removes all tools, middleware, and hooks associ
 Middleware that auto-injects mounted skill instructions into the system prompt:
 
 ```typescript
-import { SkillPromptMiddleware } from "./skill-prompt-middleware.js";
+import { SkillPromptMiddleware } from "./has-skills.js";
 
-agent.use(new SkillPromptMiddleware());
+agent.use(new SkillPromptMiddleware(agent.skills));
 ```
 
 ### Skill hooks
@@ -348,8 +347,8 @@ When `HasHooks` is also composed, skill operations emit lifecycle hooks:
 ```typescript
 import { HookEvent } from "./has-hooks.js";
 
-agent.on(HookEvent.SKILL_MOUNT, (skill) => console.log(`Mounted: ${skill.name}`));
-agent.on(HookEvent.SKILL_SETUP, (skill) => console.log(`Setting up: ${skill.name}`));
+agent.on(HookEvent.SKILL_MOUNT, (name, skill) => console.log(`Mounted: ${name}`));
+agent.on(HookEvent.SKILL_SETUP, (name, skill) => console.log(`Setting up: ${name}`));
 ```
 
 See [ADR 0024](../adr/0024-has-skills-mixin.md) for design details.

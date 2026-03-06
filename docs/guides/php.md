@@ -8,14 +8,13 @@ model. Streaming is handled through Generators.
 
 ## Installation
 
-Dependencies are declared in `src/php/composer.json`:
+Dependencies are declared in the root `composer.json`:
 
 - **Runtime:** `guzzlehttp/guzzle`
 - **Dev:** `phpunit/phpunit`
 - **Autoloading:** PSR-4 under the `AgentHarness` namespace
 
 ```bash
-cd src/php
 composer install
 ```
 
@@ -85,16 +84,16 @@ class MyAgent extends BaseAgent
 
 ## Lifecycle Hooks
 
-`HookEvent` is a string-backed enum with 22 cases. Because PHP is synchronous,
+`HookEvent` is a string-backed enum with 23 cases (including `HookError`). Because PHP is synchronous,
 dispatch is always sequential.
 
 ```php
 use AgentHarness\HookEvent;
 
-$agent->on(HookEvent::RUN_START, function () {
+$agent->on(HookEvent::RunStart, function () {
     echo "Run started\n";
 });
-$agent->on(HookEvent::TOOL_CALL, function (string $name, array $args) {
+$agent->on(HookEvent::ToolCall, function (string $name, array $args) {
     echo "Calling {$name}\n";
 });
 ```
@@ -105,7 +104,7 @@ Remove a hook with `removeHook()`:
 $agent->removeHook(HookEvent::RunStart, $callback);
 ```
 
-All registration methods return `$this` for fluent chaining. Read-only accessors: `$agent->getHooks()`, `$agent->getMiddleware()`, `$agent->getTools()`, `$agent->getEvents()`.
+`on()` returns a `\Closure` that removes the hook when called. Fluent chaining is available only through the builder. Read-only accessors: `$agent->getHooks()`, `$agent->getMiddleware()`, `$agent->getTools()`, `$agent->getEvents()`.
 
 ## Middleware
 
@@ -163,10 +162,10 @@ $agent->registerTool($addTool);
 Register custom event types to structure agent output:
 
 ```php
-use AgentHarness\EventType;
+use AgentHarness\StructuredEvent;
 use AgentHarness\StreamConfig;
 
-$progressEvent = new EventType(
+$progressEvent = new StructuredEvent(
     name: 'progress',
     description: 'Report task progress',
     schema: ['percent' => 'integer', 'message' => 'string'],
@@ -180,7 +179,7 @@ $agent->defaultEvents = ['progress'];
 For events that deliver content incrementally, attach a `StreamConfig`:
 
 ```php
-$codeEvent = new EventType(
+$codeEvent = new StructuredEvent(
     name: 'code_output',
     description: 'Stream generated code',
     schema: ['language' => 'string', 'code' => 'string'],
@@ -269,7 +268,8 @@ ShellRegistry::register('data-explorer', new Shell(
     allowedCommands: ['cat', 'grep', 'find', 'ls', 'jq', 'head', 'tail', 'wc'],
 ));
 
-$agent = new MyAgent(model: 'gpt-4o', shell: 'data-explorer');
+$agent = new MyAgent(model: 'gpt-4o');
+$agent->initHasShell('data-explorer');
 $agent->fs()->write('/data/results.json', $results);  // only this agent sees this
 ```
 
@@ -337,19 +337,19 @@ use AgentHarness\SkillContext;
 
 class WebBrowsingSkill extends Skill
 {
-    public string $name = 'web_browsing';
-    public string $description = 'Browse the web and extract content';
-    public string $version = '1.0.0';
-    public string $instructions = 'You can browse the web using the fetch_page tool.';
+    public readonly string $name = 'web_browsing';
+    public readonly string $description = 'Browse the web and extract content';
+    public readonly string $version = '1.0.0';
+    public readonly string $instructions = 'You can browse the web using the fetch_page tool.';
 
     public function setup(SkillContext $ctx): void
     {
-        $ctx->client = new \GuzzleHttp\Client();
+        $ctx->state['client'] = new \GuzzleHttp\Client();
     }
 
     public function teardown(SkillContext $ctx): void
     {
-        // cleanup
+        // cleanup via $ctx->state
     }
 
     public function tools(): array { return [$this->fetchPageTool()]; }

@@ -16,38 +16,38 @@ classDiagram
         +model: string
         +system: string
         +run(messages)
-        #_call_llm(messages)
-        #_handle_stream(stream)
-        #_handle_response(response, context)
-        #_build_system_prompt(base, context)
+        #callLlm(messages)
+        #handleStream(stream)
+        #handleResponse(response, context)
+        #buildSystemPrompt(base, context)
     }
     class HasHooks {
         +on(event, callback)
-        +remove_hook(event, callback)
+        +removeHook(event, callback)
         +hooks
-        #_emit(event, ...args)
+        #emit(event, ...args)
     }
     class HasMiddleware {
         +use(middleware)
-        +remove_middleware(middleware)
+        +removeMiddleware(middleware)
         +middleware
-        #_run_pre(messages, context)
-        #_run_post(message, context)
+        #runPre(messages, context)
+        #runPost(message, context)
     }
     class UsesTools {
-        +register_tool(fn_or_def)
-        +unregister_tool(name)
+        +registerTool(fnOrDef)
+        +unregisterTool(name)
         +tools
-        #_tools_schema()
-        #_execute_tool(name, args)
+        #toolsSchema()
+        #executeTool(name, args)
     }
     class EmitsEvents {
-        +register_event(event_type)
-        +unregister_event(name)
+        +registerEvent(eventType)
+        +unregisterEvent(name)
         +events
         +bus: MessageBus
-        #_resolve_active_events(events)
-        #_build_event_prompt(event_types)
+        #resolveActiveEvents(events)
+        #buildEventPrompt(eventTypes)
     }
     class HasShell {
         +fs: VirtualFS
@@ -82,7 +82,7 @@ classDiagram
     StandardAgent ..|> HasSkills
 ```
 
-Solid lines denote inheritance; dashed lines denote mixin/trait implementation.
+Solid lines denote inheritance; dashed lines denote mixin/trait implementation. Method names above use camelCase (TypeScript/PHP convention); Python equivalents use snake_case (e.g., `registerTool` → `register_tool`).
 
 ---
 
@@ -141,7 +141,7 @@ stateDiagram-v2
 | Component | Responsibility |
 |-----------|---------------|
 | **BaseAgent** | Core agent loop: manages turns, calls LLM, handles streaming responses, tool execution dispatch |
-| **HasHooks** | Lifecycle event system: `on()`/`remove_hook()` for 22 hook events, read-only `hooks` accessor, concurrent dispatch (Python/TS) or sequential (PHP) |
+| **HasHooks** | Lifecycle event system: `on()`/`remove_hook()` for 22 hook events (23 in TypeScript/PHP, which add `hook_error`), read-only `hooks` accessor, concurrent dispatch (Python/TS) or sequential (PHP) |
 | **HasMiddleware** | Sequential message pipeline: `use()`/`remove_middleware()`, read-only `middleware` accessor, pre/post processing |
 | **UsesTools** | Tool registration and execution: `register_tool()`/`unregister_tool()`, read-only `tools` accessor, automatic JSON schema from type hints, async execution |
 | **EmitsEvents** | Event emission configuration: `register_event()`/`unregister_event()`, read-only `events` accessor, builds prompts instructing LLM to emit events, manages per-run event selection |
