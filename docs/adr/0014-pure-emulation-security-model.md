@@ -20,8 +20,13 @@ All shell commands are pure functions in the host language operating on the in-m
 - **No code execution** — no eval, awk, or function definition support
 - **Output truncation** — configurable `max_output` prevents context flooding
 - **Command allowlisting** — restrict available commands per Shell instance
+- **Iteration limits** — `for`/`while` loops share a counter capped at `maxIterations` (default 10,000)
+- **Command substitution depth** — `$(...)` recursion limited to 10 levels
+- **Expansion cap** — maximum 1,000 variable/command substitutions per `exec()` call, preventing expansion bombs
+- **Variable size cap** — individual variable values capped at 64KB
+- **Parser nesting depth** — AST nesting limited to 50 levels
 
-The Python `shlex` import is used solely for `shlex.split()` (argument tokenization). The `os` import is used solely for `os.path.normpath` (path resolution). Neither touches the real filesystem or shell.
+The Python `os` import is used solely for `os.path.normpath` (path resolution). It does not touch the real filesystem.
 
 ### Future hardening (documented requirements, not yet implemented)
 
@@ -34,6 +39,7 @@ The Python `shlex` import is used solely for `shlex.split()` (argument tokenizat
 ## Consequences
 
 - Zero risk of OS-level side effects from LLM-driven shell commands
-- The 23-command subset covers the vast majority of context exploration patterns
-- Some commands (awk, while loops, functions) are intentionally absent — this is a feature, not a limitation
+- The 30-command subset with control flow (`if/elif/else`, `for`, `while`, `case`), arithmetic `$((...))`, and parameter expansion covers the vast majority of shell scripts agents produce
+- Some commands (awk, functions, source) are intentionally absent — this is a feature, not a limitation
+- All flow control is bounded by iteration limits and nesting depth, preventing runaway execution
 - Users who need full bash can use the real just-bash library externally; the harness shell is for safe, in-memory context exploration

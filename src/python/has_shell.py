@@ -55,9 +55,14 @@ class HasShell:
             name="exec",
             description=(
                 "Execute a bash command in the virtual filesystem. "
-                "Supports: ls, cat, grep, find, head, tail, wc, sort, uniq, "
-                "cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, echo, stat. "
-                "Pipes (|) and redirects (>, >>) are supported."
+                "Commands: ls, cat, grep, find, head, tail, wc, sort, uniq, "
+                "cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, "
+                "echo, stat, test, printf, true, false. "
+                "Operators: pipes (|), redirects (>, >>), && (and), || (or), ; (sequence). "
+                "Flow control: if/then/elif/else/fi, for/in/do/done, while/do/done, case/in/esac. "
+                "Features: VAR=assignment, $(cmd) substitution, $((expr)) arithmetic, "
+                "${var:-default} expansion, ${var:=default}, ${#var}, "
+                "${var:offset:length}, ${var//pat/repl}, ${var%suffix}, ${var##prefix}."
             ),
             function=exec_command,
             parameters={

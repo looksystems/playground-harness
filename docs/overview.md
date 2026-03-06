@@ -12,7 +12,7 @@ Agent Harness provides a small set of well-defined building blocks that can be m
 - **Tool registration** — Declarative tool definitions with automatic schema generation.
 - **Event emission** — The LLM emits structured YAML events inline in text, which are parsed and routed through a message bus.
 - **Streaming events** — Configurable buffered or streaming event delivery.
-- **Virtual shell** — In-memory filesystem and shell interpreter giving agents a single `exec` tool for context exploration via standard Unix commands. Pure emulation with no real shell or filesystem access.
+- **Virtual shell** — In-memory filesystem and shell interpreter giving agents a single `exec` tool for context exploration via standard Unix commands. Supports 30 built-in commands, control flow (`if/elif/else`, `for`, `while`, `case`), logical operators (`&&`, `||`), variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion, and `printf`. Pure emulation with no real shell or filesystem access.
 
 ## Architecture Overview
 

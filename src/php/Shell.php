@@ -17,17 +17,659 @@ class ExecResult
     }
 }
 
+// ---------------------------------------------------------------------------
+// Token types
+// ---------------------------------------------------------------------------
+
+const TOKEN_WORD = 'WORD';
+const TOKEN_PIPE = 'PIPE';
+const TOKEN_SEMI = 'SEMI';
+const TOKEN_DSEMI = 'DSEMI';
+const TOKEN_AND = 'AND';
+const TOKEN_OR = 'OR';
+const TOKEN_REDIRECT_OUT = 'REDIRECT_OUT';
+const TOKEN_REDIRECT_APPEND = 'REDIRECT_APPEND';
+const TOKEN_LPAREN = 'LPAREN';
+const TOKEN_RPAREN = 'RPAREN';
+const TOKEN_NEWLINE = 'NEWLINE';
+const TOKEN_EOF = 'EOF';
+
+const KEYWORDS = ['if', 'then', 'elif', 'else', 'fi', 'for', 'in', 'do', 'done', 'while', 'case', 'esac'];
+
+// ---------------------------------------------------------------------------
+// Tokenizer
+// ---------------------------------------------------------------------------
+
 /**
- * Minimal shell interpreter over a VirtualFS.
- * Supports pipes, redirects, and core Unix commands.
+ * @return list<array{type: string, value: string}>
+ */
+function tokenize(string $input): array
+{
+    $tokens = [];
+    $i = 0;
+    $len = strlen($input);
+
+    while ($i < $len) {
+        $c = $input[$i];
+
+        if ($c === ' ' || $c === "\t") {
+            $i++;
+            continue;
+        }
+
+        if ($c === "\n") {
+            $tokens[] = ['type' => TOKEN_NEWLINE, 'value' => "\n"];
+            $i++;
+            continue;
+        }
+
+        if ($c === ';' && $i + 1 < $len && $input[$i + 1] === ';') {
+            $tokens[] = ['type' => TOKEN_DSEMI, 'value' => ';;'];
+            $i += 2;
+            continue;
+        }
+
+        if ($c === ';') {
+            $tokens[] = ['type' => TOKEN_SEMI, 'value' => ';'];
+            $i++;
+            continue;
+        }
+
+        if ($c === '|' && $i + 1 < $len && $input[$i + 1] === '|') {
+            $tokens[] = ['type' => TOKEN_OR, 'value' => '||'];
+            $i += 2;
+            continue;
+        }
+
+        if ($c === '|') {
+            $tokens[] = ['type' => TOKEN_PIPE, 'value' => '|'];
+            $i++;
+            continue;
+        }
+
+        if ($c === '&' && $i + 1 < $len && $input[$i + 1] === '&') {
+            $tokens[] = ['type' => TOKEN_AND, 'value' => '&&'];
+            $i += 2;
+            continue;
+        }
+
+        if ($c === '>' && $i + 1 < $len && $input[$i + 1] === '>') {
+            $tokens[] = ['type' => TOKEN_REDIRECT_APPEND, 'value' => '>>'];
+            $i += 2;
+            continue;
+        }
+
+        if ($c === '>') {
+            $tokens[] = ['type' => TOKEN_REDIRECT_OUT, 'value' => '>'];
+            $i++;
+            continue;
+        }
+
+        if ($c === '(') {
+            $tokens[] = ['type' => TOKEN_LPAREN, 'value' => '('];
+            $i++;
+            continue;
+        }
+
+        if ($c === ')') {
+            $tokens[] = ['type' => TOKEN_RPAREN, 'value' => ')'];
+            $i++;
+            continue;
+        }
+
+        // Comment
+        if ($c === '#') {
+            while ($i < $len && $input[$i] !== "\n") {
+                $i++;
+            }
+            continue;
+        }
+
+        // Word (includes quoted strings, $(...), `...`, ${...}, $VAR)
+        $word = '';
+        while ($i < $len) {
+            $ch = $input[$i];
+
+            if ($ch === "'") {
+                // Single-quoted string: collect everything verbatim including the quotes
+                $word .= $ch;
+                $i++;
+                while ($i < $len && $input[$i] !== "'") {
+                    $word .= $input[$i];
+                    $i++;
+                }
+                if ($i < $len) {
+                    $word .= $input[$i];
+                    $i++;
+                }
+                continue;
+            }
+
+            if ($ch === '"') {
+                $word .= $ch;
+                $i++;
+                while ($i < $len && $input[$i] !== '"') {
+                    if ($input[$i] === '\\' && $i + 1 < $len) {
+                        $word .= $input[$i] . $input[$i + 1];
+                        $i += 2;
+                    } else {
+                        $word .= $input[$i];
+                        $i++;
+                    }
+                }
+                if ($i < $len) {
+                    $word .= $input[$i];
+                    $i++;
+                }
+                continue;
+            }
+
+            if ($ch === '$' && $i + 1 < $len && $input[$i + 1] === '(') {
+                // Command substitution $(...)
+                $word .= '$(';
+                $i += 2;
+                $depth = 1;
+                while ($i < $len && $depth > 0) {
+                    if ($input[$i] === '(') {
+                        $depth++;
+                    } elseif ($input[$i] === ')') {
+                        $depth--;
+                        if ($depth === 0) {
+                            break;
+                        }
+                    } elseif ($input[$i] === "'") {
+                        $word .= $input[$i];
+                        $i++;
+                        while ($i < $len && $input[$i] !== "'") {
+                            $word .= $input[$i];
+                            $i++;
+                        }
+                        if ($i < $len) {
+                            $word .= $input[$i];
+                            $i++;
+                        }
+                        continue;
+                    } elseif ($input[$i] === '"') {
+                        $word .= $input[$i];
+                        $i++;
+                        while ($i < $len && $input[$i] !== '"') {
+                            if ($input[$i] === '\\' && $i + 1 < $len) {
+                                $word .= $input[$i] . $input[$i + 1];
+                                $i += 2;
+                            } else {
+                                $word .= $input[$i];
+                                $i++;
+                            }
+                        }
+                        if ($i < $len) {
+                            $word .= $input[$i];
+                            $i++;
+                        }
+                        continue;
+                    }
+                    $word .= $input[$i];
+                    $i++;
+                }
+                $word .= ')';
+                if ($i < $len) {
+                    $i++; // skip closing )
+                }
+                continue;
+            }
+
+            if ($ch === '$' && $i + 1 < $len && $input[$i + 1] === '{') {
+                // Parameter expansion ${...}
+                $word .= '${';
+                $i += 2;
+                $depth = 1;
+                while ($i < $len && $depth > 0) {
+                    if ($input[$i] === '{') {
+                        $depth++;
+                    } elseif ($input[$i] === '}') {
+                        $depth--;
+                        if ($depth === 0) {
+                            break;
+                        }
+                    }
+                    $word .= $input[$i];
+                    $i++;
+                }
+                $word .= '}';
+                if ($i < $len) {
+                    $i++; // skip closing }
+                }
+                continue;
+            }
+
+            if ($ch === '`') {
+                // Backtick command substitution
+                $word .= '`';
+                $i++;
+                while ($i < $len && $input[$i] !== '`') {
+                    $word .= $input[$i];
+                    $i++;
+                }
+                $word .= '`';
+                if ($i < $len) {
+                    $i++;
+                }
+                continue;
+            }
+
+            if ($ch === '\\') {
+                // Escape next character
+                if ($i + 1 < $len) {
+                    $word .= $input[$i + 1];
+                    $i += 2;
+                } else {
+                    $i++;
+                }
+                continue;
+            }
+
+            // Break on meta-characters
+            if (
+                $ch === ' ' || $ch === "\t" || $ch === "\n" ||
+                $ch === '|' || $ch === ';' || $ch === '&' ||
+                $ch === '>' || $ch === '<' || $ch === '(' || $ch === ')' ||
+                $ch === '#'
+            ) {
+                break;
+            }
+
+            $word .= $ch;
+            $i++;
+        }
+
+        if ($word !== '') {
+            $tokens[] = ['type' => TOKEN_WORD, 'value' => $word];
+        }
+    }
+
+    $tokens[] = ['type' => TOKEN_EOF, 'value' => ''];
+    return $tokens;
+}
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+class Parser
+{
+    /** @var list<array{type: string, value: string}> */
+    private array $tokens;
+    private int $pos;
+    private int $depth;
+
+    /**
+     * @param list<array{type: string, value: string}> $tokens
+     */
+    public function __construct(array $tokens)
+    {
+        $this->tokens = $tokens;
+        $this->pos = 0;
+        $this->depth = 0;
+    }
+
+    private function peek(): array
+    {
+        return $this->tokens[$this->pos] ?? ['type' => TOKEN_EOF, 'value' => ''];
+    }
+
+    private function advance(): array
+    {
+        $t = $this->tokens[$this->pos];
+        $this->pos++;
+        return $t;
+    }
+
+    private function expect(string $type): array
+    {
+        $t = $this->peek();
+        if ($t['type'] !== $type) {
+            throw new \RuntimeException("Expected {$type} but got {$t['type']} ({$t['value']})");
+        }
+        return $this->advance();
+    }
+
+    private function expectKeyword(string $kw): void
+    {
+        $t = $this->peek();
+        if ($t['type'] !== TOKEN_WORD || $t['value'] !== $kw) {
+            throw new \RuntimeException("Expected '{$kw}' but got '{$t['value']}'");
+        }
+        $this->advance();
+    }
+
+    private function atEnd(): bool
+    {
+        return $this->peek()['type'] === TOKEN_EOF;
+    }
+
+    private function skipNewlines(): void
+    {
+        while ($this->peek()['type'] === TOKEN_NEWLINE) {
+            $this->advance();
+        }
+    }
+
+    private function skipSemiNewlines(): void
+    {
+        while ($this->peek()['type'] === TOKEN_NEWLINE || $this->peek()['type'] === TOKEN_SEMI) {
+            $this->advance();
+        }
+    }
+
+    private function isCommandTerminator(): bool
+    {
+        $t = $this->peek();
+        return (
+            $t['type'] === TOKEN_EOF ||
+            $t['type'] === TOKEN_SEMI ||
+            $t['type'] === TOKEN_DSEMI ||
+            $t['type'] === TOKEN_NEWLINE ||
+            $t['type'] === TOKEN_AND ||
+            $t['type'] === TOKEN_OR ||
+            $t['type'] === TOKEN_PIPE ||
+            $t['type'] === TOKEN_RPAREN ||
+            ($t['type'] === TOKEN_WORD && in_array($t['value'], ['then', 'elif', 'else', 'fi', 'do', 'done', 'esac'], true))
+        );
+    }
+
+    private function isCompoundEnd(): bool
+    {
+        $t = $this->peek();
+        return $t['type'] === TOKEN_WORD && in_array($t['value'], ['fi', 'done', 'then', 'elif', 'else', 'do', 'esac'], true);
+    }
+
+    public function parse(): array
+    {
+        $this->depth++;
+        if ($this->depth > 50) {
+            throw new \RuntimeException('Nesting depth limit exceeded');
+        }
+        $node = $this->parseList();
+        $this->depth--;
+        return $node;
+    }
+
+    public function parseList(): array
+    {
+        $this->skipSemiNewlines();
+        if ($this->atEnd()) {
+            return ['type' => 'command', 'args' => [], 'redirects' => []];
+        }
+
+        $nodes = [];
+        $nodes[] = $this->parseAndOr();
+
+        while ($this->peek()['type'] === TOKEN_SEMI || $this->peek()['type'] === TOKEN_NEWLINE) {
+            $this->skipSemiNewlines();
+            if ($this->atEnd() || $this->isCompoundEnd()) {
+                break;
+            }
+            $nodes[] = $this->parseAndOr();
+        }
+
+        if (count($nodes) === 1) {
+            return $nodes[0];
+        }
+        return ['type' => 'list', 'commands' => $nodes];
+    }
+
+    private function parseAndOr(): array
+    {
+        $left = $this->parsePipeline();
+
+        while (true) {
+            $t = $this->peek();
+            if ($t['type'] === TOKEN_AND) {
+                $this->advance();
+                $this->skipNewlines();
+                $right = $this->parsePipeline();
+                $left = ['type' => 'and', 'left' => $left, 'right' => $right];
+            } elseif ($t['type'] === TOKEN_OR) {
+                $this->advance();
+                $this->skipNewlines();
+                $right = $this->parsePipeline();
+                $left = ['type' => 'or', 'left' => $left, 'right' => $right];
+            } else {
+                break;
+            }
+        }
+        return $left;
+    }
+
+    private function parsePipeline(): array
+    {
+        $commands = [];
+        $commands[] = $this->parseCommand();
+
+        while ($this->peek()['type'] === TOKEN_PIPE) {
+            $this->advance();
+            $this->skipNewlines();
+            $commands[] = $this->parseCommand();
+        }
+
+        if (count($commands) === 1) {
+            return $commands[0];
+        }
+        return ['type' => 'pipeline', 'commands' => $commands];
+    }
+
+    private function parseCommand(): array
+    {
+        $t = $this->peek();
+
+        if ($t['type'] === TOKEN_WORD) {
+            if ($t['value'] === 'if') {
+                return $this->parseIf();
+            }
+            if ($t['value'] === 'for') {
+                return $this->parseFor();
+            }
+            if ($t['value'] === 'while') {
+                return $this->parseWhile();
+            }
+            if ($t['value'] === 'case') {
+                return $this->parseCase();
+            }
+        }
+
+        return $this->parseSimpleCommand();
+    }
+
+    private function parseSimpleCommand(): array
+    {
+        $args = [];
+        $redirects = [];
+
+        while (!$this->isCommandTerminator()) {
+            $t = $this->peek();
+
+            if ($t['type'] === TOKEN_REDIRECT_APPEND) {
+                $this->advance();
+                $target = $this->expect(TOKEN_WORD);
+                $redirects[] = ['mode' => 'append', 'target' => $target['value']];
+            } elseif ($t['type'] === TOKEN_REDIRECT_OUT) {
+                $this->advance();
+                $target = $this->expect(TOKEN_WORD);
+                $redirects[] = ['mode' => 'write', 'target' => $target['value']];
+            } elseif ($t['type'] === TOKEN_WORD) {
+                $args[] = $t['value'];
+                $this->advance();
+            } else {
+                break;
+            }
+        }
+
+        // Check for assignment: first arg matches VAR=value pattern
+        if (count($args) >= 1 && count($redirects) === 0) {
+            $assignIdx = 0;
+            // Handle `export VAR=value`
+            if ($args[0] === 'export' && count($args) >= 2) {
+                $assignIdx = 1;
+            }
+            if (isset($args[$assignIdx]) && preg_match('/^([A-Za-z_]\w*)=(.*)$/s', $args[$assignIdx], $m)) {
+                if ($assignIdx === 0 && count($args) === 1) {
+                    return ['type' => 'assignment', 'name' => $m[1], 'value' => $m[2]];
+                }
+                if ($assignIdx === 1 && count($args) === 2) {
+                    return ['type' => 'assignment', 'name' => $m[1], 'value' => $m[2]];
+                }
+            }
+        }
+
+        return ['type' => 'command', 'args' => $args, 'redirects' => $redirects];
+    }
+
+    private function parseIf(): array
+    {
+        $this->expectKeyword('if');
+        $this->skipSemiNewlines();
+        $clauses = [];
+
+        $condition = $this->parseList();
+        $this->skipSemiNewlines();
+        $this->expectKeyword('then');
+        $this->skipSemiNewlines();
+        $body = $this->parseList();
+        $clauses[] = ['condition' => $condition, 'body' => $body];
+
+        while ($this->peek()['type'] === TOKEN_WORD && $this->peek()['value'] === 'elif') {
+            $this->advance();
+            $this->skipSemiNewlines();
+            $elifCond = $this->parseList();
+            $this->skipSemiNewlines();
+            $this->expectKeyword('then');
+            $this->skipSemiNewlines();
+            $elifBody = $this->parseList();
+            $clauses[] = ['condition' => $elifCond, 'body' => $elifBody];
+        }
+
+        $elseBody = null;
+        if ($this->peek()['type'] === TOKEN_WORD && $this->peek()['value'] === 'else') {
+            $this->advance();
+            $this->skipSemiNewlines();
+            $elseBody = $this->parseList();
+        }
+
+        $this->skipSemiNewlines();
+        $this->expectKeyword('fi');
+
+        return ['type' => 'if', 'clauses' => $clauses, 'elseBody' => $elseBody];
+    }
+
+    private function parseFor(): array
+    {
+        $this->expectKeyword('for');
+        $varToken = $this->expect(TOKEN_WORD);
+        $variable = $varToken['value'];
+
+        $this->skipSemiNewlines();
+        $words = [];
+        if ($this->peek()['type'] === TOKEN_WORD && $this->peek()['value'] === 'in') {
+            $this->advance();
+            while ($this->peek()['type'] === TOKEN_WORD && !$this->isCompoundEnd()) {
+                $words[] = $this->advance()['value'];
+            }
+        }
+
+        $this->skipSemiNewlines();
+        $this->expectKeyword('do');
+        $this->skipSemiNewlines();
+        $body = $this->parseList();
+        $this->skipSemiNewlines();
+        $this->expectKeyword('done');
+
+        return ['type' => 'for', 'variable' => $variable, 'words' => $words, 'body' => $body];
+    }
+
+    private function parseWhile(): array
+    {
+        $this->expectKeyword('while');
+        $this->skipSemiNewlines();
+        $condition = $this->parseList();
+        $this->skipSemiNewlines();
+        $this->expectKeyword('do');
+        $this->skipSemiNewlines();
+        $body = $this->parseList();
+        $this->skipSemiNewlines();
+        $this->expectKeyword('done');
+
+        return ['type' => 'while', 'condition' => $condition, 'body' => $body];
+    }
+
+    private function parseCase(): array
+    {
+        $this->expectKeyword('case');
+        $wordToken = $this->expect(TOKEN_WORD);
+        $word = $wordToken['value'];
+        $this->skipSemiNewlines();
+        $this->expectKeyword('in');
+        $this->skipSemiNewlines();
+
+        $clauses = [];
+
+        while (!($this->peek()['type'] === TOKEN_WORD && $this->peek()['value'] === 'esac') && !$this->atEnd()) {
+            // Parse patterns: pattern1 | pattern2 )
+            $patterns = [];
+            // Skip optional leading (
+            if ($this->peek()['type'] === TOKEN_LPAREN) {
+                $this->advance();
+            }
+
+            $patterns[] = $this->expect(TOKEN_WORD)['value'];
+            while ($this->peek()['type'] === TOKEN_PIPE) {
+                $this->advance();
+                $patterns[] = $this->expect(TOKEN_WORD)['value'];
+            }
+            // Expect )
+            if ($this->peek()['type'] === TOKEN_RPAREN) {
+                $this->advance();
+            } else {
+                throw new \RuntimeException("Expected ')' in case clause but got '{$this->peek()['value']}'");
+            }
+            $this->skipSemiNewlines();
+
+            // Parse body until ;;
+            $body = $this->parseList();
+            $clauses[] = ['patterns' => $patterns, 'body' => $body];
+
+            // Expect ;;
+            if ($this->peek()['type'] === TOKEN_DSEMI) {
+                $this->advance();
+            }
+            $this->skipSemiNewlines();
+        }
+
+        $this->expectKeyword('esac');
+        return ['type' => 'case', 'word' => $word, 'clauses' => $clauses];
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+
+const MAX_VAR_SIZE = 64 * 1024;
+const MAX_EXPANSIONS = 1_000;
+
+/**
+ * Virtual shell interpreter over a VirtualFS.
+ * Tokenizer + recursive-descent parser + AST evaluator.
  */
 class Shell
 {
     /** @var array<string, \Closure> */
     private array $builtins;
 
+    private int $iterationCounter = 0;
+    private int $cmdSubDepth = 0;
+    private int $expansionCount = 0;
+
     /**
-     * @param set<string>|null $allowedCommands
+     * @param list<string>|null $allowedCommands
      */
     public function __construct(
         public VirtualFS $fs,
@@ -37,7 +679,7 @@ class Shell
         private int $maxOutput = 16_000,
         private int $maxIterations = 10_000,
     ) {
-        $this->builtins = [
+        $all = [
             'cat' => $this->cmdCat(...),
             'echo' => $this->cmdEcho(...),
             'find' => $this->cmdFind(...),
@@ -61,13 +703,22 @@ class Shell
             'sed' => $this->cmdSed(...),
             'jq' => $this->cmdJq(...),
             'cd' => $this->cmdCd(...),
+            'test' => $this->cmdTest(...),
+            '[' => $this->cmdBracket(...),
+            '[[' => $this->cmdDoubleBracket(...),
+            'printf' => $this->cmdPrintf(...),
+            'export' => $this->cmdExport(...),
+            'true' => $this->cmdTrue(...),
+            'false' => $this->cmdFalse(...),
         ];
 
         if ($allowedCommands !== null) {
             $this->builtins = array_intersect_key(
-                $this->builtins,
+                $all,
                 array_flip($allowedCommands)
             );
+        } else {
+            $this->builtins = $all;
         }
     }
 
@@ -118,93 +769,85 @@ class Shell
             return new ExecResult();
         }
 
-        // Handle command chaining with ;
-        if (str_contains($command, ';')) {
-            $pos = strpos($command, ';');
-            if ($pos !== false && !self::inQuotes($command, $pos)) {
-                $results = [];
-                foreach (self::splitOn($command, ';') as $part) {
-                    $part = trim($part);
-                    if ($part === '') {
-                        continue;
-                    }
-                    $r = $this->exec($part);
-                    $results[] = $r;
-                    if ($r->exitCode !== 0) {
-                        break;
-                    }
-                }
-                return new ExecResult(
-                    stdout: implode('', array_map(fn(ExecResult $r) => $r->stdout, $results)),
-                    stderr: implode('', array_map(fn(ExecResult $r) => $r->stderr, $results)),
-                    exitCode: !empty($results) ? end($results)->exitCode : 0,
-                );
-            }
+        try {
+            $tokens = tokenize($command);
+            $parser = new Parser($tokens);
+            $ast = $parser->parse();
+        } catch (\Throwable $e) {
+            return new ExecResult(stderr: "parse error: {$e->getMessage()}\n", exitCode: 2);
         }
 
-        // Handle pipes
-        $segments = self::splitOn($command, '|');
-        $stdin = '';
-        $lastResult = new ExecResult();
+        $this->iterationCounter = 0;
+        $this->expansionCount = 0;
 
-        foreach ($segments as $seg) {
-            $lastResult = $this->execSingle(trim($seg), $stdin);
-            $stdin = $lastResult->stdout;
-            if ($lastResult->exitCode !== 0) {
-                break;
-            }
+        try {
+            $result = $this->evaluate($ast, '');
+        } catch (\Throwable $e) {
+            return new ExecResult(stderr: "{$e->getMessage()}\n", exitCode: 1);
         }
 
         // Truncate
-        if (strlen($lastResult->stdout) > $this->maxOutput) {
-            $total = strlen($lastResult->stdout);
+        if (strlen($result->stdout) > $this->maxOutput) {
+            $total = strlen($result->stdout);
             return new ExecResult(
-                stdout: substr($lastResult->stdout, 0, $this->maxOutput)
+                stdout: substr($result->stdout, 0, $this->maxOutput)
                     . "\n... [truncated, {$total} total chars]",
-                stderr: $lastResult->stderr,
-                exitCode: $lastResult->exitCode,
+                stderr: $result->stderr,
+                exitCode: $result->exitCode,
             );
         }
 
-        return $lastResult;
+        return $result;
     }
 
-    private function execSingle(string $command, string $stdin = ''): ExecResult
+    // -----------------------------------------------------------------------
+    // AST evaluator
+    // -----------------------------------------------------------------------
+
+    private function evaluate(array $node, string $stdin): ExecResult
     {
-        $append = false;
-        $redirectPath = null;
+        return match ($node['type']) {
+            'command' => $this->evalCommand($node, $stdin),
+            'pipeline' => $this->evalPipeline($node, $stdin),
+            'list' => $this->evalList($node, $stdin),
+            'and' => $this->evalAnd($node, $stdin),
+            'or' => $this->evalOr($node, $stdin),
+            'if' => $this->evalIf($node, $stdin),
+            'for' => $this->evalFor($node, $stdin),
+            'while' => $this->evalWhile($node, $stdin),
+            'assignment' => $this->evalAssignment($node),
+            'case' => $this->evalCase($node, $stdin),
+            default => new ExecResult(),
+        };
+    }
 
-        foreach (['>>', '>'] as $op) {
-            $pos = strpos($command, $op);
-            if ($pos !== false && !self::inQuotes($command, $pos)) {
-                $rest = trim(substr($command, $pos + strlen($op)));
-                $parts = preg_split('/\s+/', $rest, 2);
-                $redirectPath = $parts[0] ?? '';
-                $command = trim(substr($command, 0, $pos));
-                $append = ($op === '>>');
-                break;
-            }
-        }
-
-        $parts = self::shellSplit($command);
-        if (empty($parts)) {
+    private function evalCommand(array $node, string $stdin): ExecResult
+    {
+        if (empty($node['args']) && empty($node['redirects'])) {
             return new ExecResult();
         }
 
-        $parts = array_map(fn(string $p) => $this->expandVars($p), $parts);
-        $cmdName = $parts[0];
-        $args = array_slice($parts, 1);
+        $expanded = $this->expandArgs($node['args']);
+        if (empty($expanded)) {
+            return new ExecResult();
+        }
+
+        $cmdName = $expanded[0];
+        $args = array_slice($expanded, 1);
 
         $handler = $this->builtins[$cmdName] ?? null;
         if ($handler === null) {
+            $this->env['?'] = '127';
             return new ExecResult(stderr: "{$cmdName}: command not found\n", exitCode: 127);
         }
 
         $result = $handler($args, $stdin);
+        $this->env['?'] = (string) $result->exitCode;
 
-        if ($redirectPath !== null && $redirectPath !== '') {
-            $path = $this->resolve($redirectPath);
-            if ($append && $this->fs->exists($path)) {
+        foreach ($node['redirects'] as $redir) {
+            $target = $this->expandWord($redir['target']);
+            $path = $this->resolve($target);
+            if ($redir['mode'] === 'append' && $this->fs->exists($path)) {
                 $existing = $this->fs->readText($path);
                 $this->fs->write($path, $existing . $result->stdout);
             } else {
@@ -216,123 +859,950 @@ class Shell
         return $result;
     }
 
-    private function expandVars(string $s): string
+    private function evalPipeline(array $node, string $stdin): ExecResult
     {
-        return preg_replace_callback('/\$\{(\w+)\}|\$(\w+)/', function (array $m) {
-            $name = $m[1] !== '' ? $m[1] : $m[2];
-            return $this->env[$name] ?? '';
-        }, $s);
-    }
+        $currentStdin = $stdin;
+        $lastResult = new ExecResult();
 
-    private static function inQuotes(string $s, int $pos): bool
-    {
-        $inSingle = false;
-        $inDouble = false;
-        for ($i = 0; $i < $pos; $i++) {
-            $c = $s[$i];
-            if ($c === "'" && !$inDouble) {
-                $inSingle = !$inSingle;
-            } elseif ($c === '"' && !$inSingle) {
-                $inDouble = !$inDouble;
+        foreach ($node['commands'] as $cmd) {
+            $lastResult = $this->evaluate($cmd, $currentStdin);
+            $currentStdin = $lastResult->stdout;
+            if ($lastResult->exitCode !== 0) {
+                break;
             }
         }
-        return $inSingle || $inDouble;
+
+        $this->env['?'] = (string) $lastResult->exitCode;
+        return $lastResult;
+    }
+
+    private function evalList(array $node, string $stdin): ExecResult
+    {
+        $results = [];
+        foreach ($node['commands'] as $cmd) {
+            $r = $this->evaluate($cmd, $stdin);
+            $results[] = $r;
+        }
+        return new ExecResult(
+            stdout: implode('', array_map(fn(ExecResult $r) => $r->stdout, $results)),
+            stderr: implode('', array_map(fn(ExecResult $r) => $r->stderr, $results)),
+            exitCode: !empty($results) ? end($results)->exitCode : 0,
+        );
+    }
+
+    private function evalAnd(array $node, string $stdin): ExecResult
+    {
+        $left = $this->evaluate($node['left'], $stdin);
+        if ($left->exitCode !== 0) {
+            return $left;
+        }
+        $right = $this->evaluate($node['right'], $stdin);
+        return new ExecResult(
+            stdout: $left->stdout . $right->stdout,
+            stderr: $left->stderr . $right->stderr,
+            exitCode: $right->exitCode,
+        );
+    }
+
+    private function evalOr(array $node, string $stdin): ExecResult
+    {
+        $left = $this->evaluate($node['left'], $stdin);
+        if ($left->exitCode === 0) {
+            return $left;
+        }
+        $right = $this->evaluate($node['right'], $stdin);
+        return new ExecResult(
+            stdout: $left->stdout . $right->stdout,
+            stderr: $left->stderr . $right->stderr,
+            exitCode: $right->exitCode,
+        );
+    }
+
+    private function evalIf(array $node, string $stdin): ExecResult
+    {
+        foreach ($node['clauses'] as $clause) {
+            $condResult = $this->evaluate($clause['condition'], $stdin);
+            if ($condResult->exitCode === 0) {
+                $bodyResult = $this->evaluate($clause['body'], $stdin);
+                return new ExecResult(
+                    stdout: $condResult->stdout . $bodyResult->stdout,
+                    stderr: $condResult->stderr . $bodyResult->stderr,
+                    exitCode: $bodyResult->exitCode,
+                );
+            }
+        }
+        if ($node['elseBody'] !== null) {
+            return $this->evaluate($node['elseBody'], $stdin);
+        }
+        return new ExecResult();
+    }
+
+    private function evalFor(array $node, string $stdin): ExecResult
+    {
+        $words = [];
+        foreach ($node['words'] as $w) {
+            $expanded = $this->expandWord($w);
+            $split = preg_split('/\s+/', $expanded, -1, PREG_SPLIT_NO_EMPTY);
+            foreach ($split as $s) {
+                $words[] = $s;
+            }
+        }
+
+        $stdout = '';
+        $stderr = '';
+        $exitCode = 0;
+
+        foreach ($words as $word) {
+            $this->iterationCounter++;
+            if ($this->iterationCounter > $this->maxIterations) {
+                return new ExecResult(
+                    stdout: $stdout,
+                    stderr: $stderr . "Maximum iteration limit exceeded\n",
+                    exitCode: 1,
+                );
+            }
+            $this->env[$node['variable']] = $word;
+            $r = $this->evaluate($node['body'], $stdin);
+            $stdout .= $r->stdout;
+            $stderr .= $r->stderr;
+            $exitCode = $r->exitCode;
+        }
+
+        return new ExecResult(stdout: $stdout, stderr: $stderr, exitCode: $exitCode);
+    }
+
+    private function evalWhile(array $node, string $stdin): ExecResult
+    {
+        $stdout = '';
+        $stderr = '';
+        $exitCode = 0;
+
+        while (true) {
+            $this->iterationCounter++;
+            if ($this->iterationCounter > $this->maxIterations) {
+                return new ExecResult(
+                    stdout: $stdout,
+                    stderr: $stderr . "Maximum iteration limit exceeded\n",
+                    exitCode: 1,
+                );
+            }
+            $condResult = $this->evaluate($node['condition'], $stdin);
+            if ($condResult->exitCode !== 0) {
+                break;
+            }
+            $bodyResult = $this->evaluate($node['body'], $stdin);
+            $stdout .= $bodyResult->stdout;
+            $stderr .= $bodyResult->stderr;
+            $exitCode = $bodyResult->exitCode;
+        }
+
+        return new ExecResult(stdout: $stdout, stderr: $stderr, exitCode: $exitCode);
+    }
+
+    private function evalAssignment(array $node): ExecResult
+    {
+        $value = $this->expandWord($node['value']);
+        if (strlen($value) > MAX_VAR_SIZE) {
+            $value = substr($value, 0, MAX_VAR_SIZE);
+        }
+        $this->env[$node['name']] = $value;
+        return new ExecResult();
+    }
+
+    private function evalCase(array $node, string $stdin): ExecResult
+    {
+        $word = $this->expandWord($node['word']);
+        foreach ($node['clauses'] as $clause) {
+            foreach ($clause['patterns'] as $pattern) {
+                $expanded = $this->expandWord($pattern);
+                if ($expanded === '*' || $this->globMatch($word, $expanded)) {
+                    return $this->evaluate($clause['body'], $stdin);
+                }
+            }
+        }
+        return new ExecResult();
+    }
+
+    private function globMatch(string $str, string $pattern): bool
+    {
+        $regex = $this->globToRegex($pattern);
+        return (bool) preg_match($regex, $str);
+    }
+
+    private function evalArithmetic(string $expr): int
+    {
+        // Expand variables
+        $expanded = preg_replace_callback('/\$\{?(\w+)\}?/', function ($m) {
+            return $this->env[$m[1]] ?? '0';
+        }, $expr);
+        $expanded = preg_replace_callback('/[A-Za-z_]\w*/', function ($m) {
+            return $this->env[$m[0]] ?? '0';
+        }, $expanded);
+
+        return $this->parseArithExpr(trim($expanded));
+    }
+
+    private function parseArithExpr(string $expr): int
+    {
+        $tokens = $this->tokenizeArith($expr);
+        $pos = 0;
+
+        $peek = function () use (&$tokens, &$pos): string {
+            return $tokens[$pos] ?? '';
+        };
+        $advance = function () use (&$tokens, &$pos): string {
+            $t = $tokens[$pos] ?? '';
+            $pos++;
+            return $t;
+        };
+
+        $parseExpr = null;
+        $parseTernary = null;
+        $parseOr = null;
+        $parseAnd = null;
+        $parseBitOr = null;
+        $parseBitXor = null;
+        $parseBitAnd = null;
+        $parseEquality = null;
+        $parseRelational = null;
+        $parseShift = null;
+        $parseAdd = null;
+        $parseMul = null;
+        $parseUnary = null;
+        $parsePrimary = null;
+
+        $parseExpr = function () use (&$parseTernary): int {
+            return $parseTernary();
+        };
+
+        $parseTernary = function () use (&$parseOr, &$parseExpr, $peek, $advance): int {
+            $val = $parseOr();
+            if ($peek() === '?') {
+                $advance();
+                $truthy = $parseExpr();
+                if ($peek() === ':') {
+                    $advance();
+                }
+                $falsy = $parseExpr();
+                return $val !== 0 ? $truthy : $falsy;
+            }
+            return $val;
+        };
+
+        $parseOr = function () use (&$parseAnd, $peek, $advance): int {
+            $val = $parseAnd();
+            while ($peek() === '||') {
+                $advance();
+                $val = ($val !== 0 || $parseAnd() !== 0) ? 1 : 0;
+            }
+            return $val;
+        };
+
+        $parseAnd = function () use (&$parseBitOr, $peek, $advance): int {
+            $val = $parseBitOr();
+            while ($peek() === '&&') {
+                $advance();
+                $val = ($val !== 0 && $parseBitOr() !== 0) ? 1 : 0;
+            }
+            return $val;
+        };
+
+        $parseBitOr = function () use (&$parseBitXor, $peek, $advance): int {
+            $val = $parseBitXor();
+            while ($peek() === '|') {
+                $advance();
+                $val = $val | $parseBitXor();
+            }
+            return $val;
+        };
+
+        $parseBitXor = function () use (&$parseBitAnd, $peek, $advance): int {
+            $val = $parseBitAnd();
+            while ($peek() === '^') {
+                $advance();
+                $val = $val ^ $parseBitAnd();
+            }
+            return $val;
+        };
+
+        $parseBitAnd = function () use (&$parseEquality, $peek, $advance): int {
+            $val = $parseEquality();
+            while ($peek() === '&') {
+                $advance();
+                $val = $val & $parseEquality();
+            }
+            return $val;
+        };
+
+        $parseEquality = function () use (&$parseRelational, $peek, $advance): int {
+            $val = $parseRelational();
+            while ($peek() === '==' || $peek() === '!=') {
+                $op = $advance();
+                $right = $parseRelational();
+                $val = $op === '==' ? ($val === $right ? 1 : 0) : ($val !== $right ? 1 : 0);
+            }
+            return $val;
+        };
+
+        $parseRelational = function () use (&$parseShift, $peek, $advance): int {
+            $val = $parseShift();
+            while (in_array($peek(), ['<', '>', '<=', '>='], true)) {
+                $op = $advance();
+                $right = $parseShift();
+                if ($op === '<') { $val = $val < $right ? 1 : 0; }
+                elseif ($op === '>') { $val = $val > $right ? 1 : 0; }
+                elseif ($op === '<=') { $val = $val <= $right ? 1 : 0; }
+                else { $val = $val >= $right ? 1 : 0; }
+            }
+            return $val;
+        };
+
+        $parseShift = function () use (&$parseAdd, $peek, $advance): int {
+            $val = $parseAdd();
+            while ($peek() === '<<' || $peek() === '>>') {
+                $op = $advance();
+                $right = $parseAdd();
+                $val = $op === '<<' ? $val << $right : $val >> $right;
+            }
+            return $val;
+        };
+
+        $parseAdd = function () use (&$parseMul, $peek, $advance): int {
+            $val = $parseMul();
+            while ($peek() === '+' || $peek() === '-') {
+                $op = $advance();
+                $right = $parseMul();
+                $val = $op === '+' ? $val + $right : $val - $right;
+            }
+            return $val;
+        };
+
+        $parseMul = function () use (&$parseUnary, $peek, $advance): int {
+            $val = $parseUnary();
+            while ($peek() === '*' || $peek() === '/' || $peek() === '%') {
+                $op = $advance();
+                $right = $parseUnary();
+                if ($op === '*') { $val = $val * $right; }
+                elseif ($op === '/') {
+                    if ($right === 0) { throw new \RuntimeException('division by zero'); }
+                    $val = intdiv($val, $right);
+                } else {
+                    if ($right === 0) { throw new \RuntimeException('division by zero'); }
+                    $val = $val % $right;
+                }
+            }
+            return $val;
+        };
+
+        $parseUnary = function () use (&$parseUnary, &$parsePrimary, $peek, $advance): int {
+            if ($peek() === '-') { $advance(); return -$parseUnary(); }
+            if ($peek() === '+') { $advance(); return $parseUnary(); }
+            if ($peek() === '!') { $advance(); return $parseUnary() === 0 ? 1 : 0; }
+            if ($peek() === '~') { $advance(); return ~$parseUnary(); }
+            return $parsePrimary();
+        };
+
+        $parsePrimary = function () use (&$parseExpr, $peek, $advance): int {
+            if ($peek() === '(') {
+                $advance();
+                $val = $parseExpr();
+                if ($peek() === ')') { $advance(); }
+                return $val;
+            }
+            $tok = $advance();
+            $n = (int) $tok;
+            return is_numeric($tok) ? $n : 0;
+        };
+
+        return $parseExpr();
     }
 
     /**
      * @return list<string>
      */
-    private static function splitOn(string $command, string $sep): array
+    private function tokenizeArith(string $expr): array
     {
-        $parts = [];
-        $current = '';
-        $inSingle = false;
-        $inDouble = false;
+        $tokens = [];
         $i = 0;
-        $len = strlen($command);
-        $sepLen = strlen($sep);
-
+        $len = strlen($expr);
         while ($i < $len) {
-            $c = $command[$i];
-            if ($c === "'" && !$inDouble) {
-                $inSingle = !$inSingle;
-                $current .= $c;
-            } elseif ($c === '"' && !$inSingle) {
-                $inDouble = !$inDouble;
-                $current .= $c;
-            } elseif (substr($command, $i, $sepLen) === $sep && !$inSingle && !$inDouble) {
-                $parts[] = $current;
-                $current = '';
-                $i += $sepLen;
+            if ($expr[$i] === ' ' || $expr[$i] === "\t") { $i++; continue; }
+            $two = substr($expr, $i, 2);
+            if (in_array($two, ['||', '&&', '==', '!=', '<=', '>=', '<<', '>>'], true)) {
+                $tokens[] = $two;
+                $i += 2;
                 continue;
-            } else {
-                $current .= $c;
+            }
+            if (strpos('+-*/%()^&|<>!~?:', $expr[$i]) !== false) {
+                $tokens[] = $expr[$i];
+                $i++;
+                continue;
+            }
+            if (ctype_digit($expr[$i])) {
+                $num = '';
+                while ($i < $len && ctype_digit($expr[$i])) { $num .= $expr[$i]; $i++; }
+                $tokens[] = $num;
+                continue;
             }
             $i++;
         }
-        $parts[] = $current;
-        return $parts;
+        return $tokens;
     }
 
+    // -----------------------------------------------------------------------
+    // Expansion
+    // -----------------------------------------------------------------------
+
     /**
-     * Quote-aware argument tokenization (similar to shlex.split).
-     *
+     * @param list<string> $args
      * @return list<string>
      */
-    private static function shellSplit(string $s): array
+    private function expandArgs(array $args): array
     {
-        $tokens = [];
-        $current = '';
-        $inSingle = false;
-        $inDouble = false;
+        $result = [];
+        foreach ($args as $arg) {
+            $result[] = $this->expandWord($arg);
+        }
+        return $result;
+    }
+
+    private function expandWord(string $s): string
+    {
+        $result = '';
         $i = 0;
         $len = strlen($s);
 
         while ($i < $len) {
             $c = $s[$i];
 
-            if ($inSingle) {
-                if ($c === "'") {
-                    $inSingle = false;
-                } else {
-                    $current .= $c;
-                }
-            } elseif ($inDouble) {
-                if ($c === '"') {
-                    $inDouble = false;
-                } elseif ($c === '\\' && $i + 1 < $len && in_array($s[$i + 1], ['"', '\\', '$'], true)) {
-                    $current .= $s[$i + 1];
-                    $i++;
-                } else {
-                    $current .= $c;
-                }
-            } elseif ($c === "'") {
-                $inSingle = true;
-            } elseif ($c === '"') {
-                $inDouble = true;
-            } elseif ($c === '\\' && $i + 1 < $len) {
-                $current .= $s[$i + 1];
+            if ($c === "'") {
+                // Single quotes: no expansion, strip quotes
                 $i++;
-            } elseif (ctype_space($c)) {
-                if ($current !== '') {
-                    $tokens[] = $current;
-                    $current = '';
+                while ($i < $len && $s[$i] !== "'") {
+                    $result .= $s[$i];
+                    $i++;
                 }
-            } else {
-                $current .= $c;
+                if ($i < $len) {
+                    $i++; // skip closing '
+                }
+                continue;
             }
 
+            if ($c === '"') {
+                // Double quotes: expand variables/command subs, strip quotes
+                $i++;
+                while ($i < $len && $s[$i] !== '"') {
+                    if ($s[$i] === '\\' && $i + 1 < $len && in_array($s[$i + 1], ['"', '$', '\\', '`'], true)) {
+                        $result .= $s[$i + 1];
+                        $i += 2;
+                    } elseif ($s[$i] === '$') {
+                        [$val, $consumed] = $this->expandDollar($s, $i);
+                        $result .= $val;
+                        $i += $consumed;
+                    } elseif ($s[$i] === '`') {
+                        [$val, $consumed] = $this->expandBacktick($s, $i);
+                        $result .= $val;
+                        $i += $consumed;
+                    } else {
+                        $result .= $s[$i];
+                        $i++;
+                    }
+                }
+                if ($i < $len) {
+                    $i++; // skip closing "
+                }
+                continue;
+            }
+
+            if ($c === '$') {
+                [$val, $consumed] = $this->expandDollar($s, $i);
+                $result .= $val;
+                $i += $consumed;
+                continue;
+            }
+
+            if ($c === '`') {
+                [$val, $consumed] = $this->expandBacktick($s, $i);
+                $result .= $val;
+                $i += $consumed;
+                continue;
+            }
+
+            $result .= $c;
             $i++;
         }
 
-        if ($current !== '') {
-            $tokens[] = $current;
-        }
-
-        return $tokens;
+        return $result;
     }
 
-    // -- Built-in commands --------------------------------------------------
+    /**
+     * @return array{string, int}
+     */
+    private function trackExpansion(): void
+    {
+        $this->expansionCount++;
+        if ($this->expansionCount > MAX_EXPANSIONS) {
+            throw new \RuntimeException('Maximum expansion limit exceeded');
+        }
+    }
+
+    private function expandDollar(string $s, int $i): array
+    {
+        $this->trackExpansion();
+        $len = strlen($s);
+
+        // $((...)) arithmetic expansion
+        if ($i + 2 < $len && $s[$i + 1] === '(' && $s[$i + 2] === '(') {
+            $depth = 2;
+            $j = $i + 3;
+            while ($j < $len && $depth > 0) {
+                if ($s[$j] === '(') { $depth++; }
+                elseif ($s[$j] === ')') { $depth--; }
+                $j++;
+            }
+            $inner = substr($s, $i + 3, $j - 2 - ($i + 3));
+            $val = (string) $this->evalArithmetic($inner);
+            return [$val, $j - $i];
+        }
+
+        // $(...) command substitution
+        if ($i + 1 < $len && $s[$i + 1] === '(') {
+            $depth = 1;
+            $j = $i + 2;
+            while ($j < $len && $depth > 0) {
+                if ($s[$j] === '(') {
+                    $depth++;
+                } elseif ($s[$j] === ')') {
+                    $depth--;
+                }
+                $j++;
+            }
+            $inner = substr($s, $i + 2, $j - 1 - ($i + 2));
+            $val = $this->commandSubstitution($inner);
+            return [$val, $j - $i];
+        }
+
+        // ${...} parameter expansion
+        if ($i + 1 < $len && $s[$i + 1] === '{') {
+            $depth = 1;
+            $j = $i + 2;
+            while ($j < $len && $depth > 0) {
+                if ($s[$j] === '{') {
+                    $depth++;
+                } elseif ($s[$j] === '}') {
+                    $depth--;
+                }
+                $j++;
+            }
+            $inner = substr($s, $i + 2, $j - 1 - ($i + 2));
+            $val = $this->expandBraceParam($inner);
+            return [$val, $j - $i];
+        }
+
+        // $? special
+        if ($i + 1 < $len && $s[$i + 1] === '?') {
+            return [$this->env['?'] ?? '0', 2];
+        }
+
+        // $VAR
+        $j = $i + 1;
+        while ($j < $len && preg_match('/\w/', $s[$j])) {
+            $j++;
+        }
+        if ($j === $i + 1) {
+            return ['$', 1];
+        }
+        $name = substr($s, $i + 1, $j - ($i + 1));
+        return [$this->env[$name] ?? '', $j - $i];
+    }
+
+    /**
+     * @return array{string, int}
+     */
+    private function expandBacktick(string $s, int $i): array
+    {
+        $len = strlen($s);
+        $j = $i + 1;
+        while ($j < $len && $s[$j] !== '`') {
+            $j++;
+        }
+        $inner = substr($s, $i + 1, $j - ($i + 1));
+        $val = $this->commandSubstitution($inner);
+        return [$val, $j - $i + 1];
+    }
+
+    private function commandSubstitution(string $cmd): string
+    {
+        if ($this->cmdSubDepth >= 10) {
+            throw new \RuntimeException('Command substitution recursion depth exceeded');
+        }
+        $this->cmdSubDepth++;
+        try {
+            $saved = $this->iterationCounter;
+            $result = $this->exec($cmd);
+            $this->iterationCounter = $saved;
+            $out = $result->stdout;
+            // Strip trailing newline
+            if (str_ends_with($out, "\n")) {
+                $out = substr($out, 0, -1);
+            }
+            return $out;
+        } finally {
+            $this->cmdSubDepth--;
+        }
+    }
+
+    private function expandBraceParam(string $expr): string
+    {
+        // ${#var} -- string length
+        if (str_starts_with($expr, '#')) {
+            $name = substr($expr, 1);
+            return (string) strlen($this->env[$name] ?? '');
+        }
+
+        // ${var:offset:length} -- substring
+        if (preg_match('/^(\w+):(-?\d+)(?::(\d+))?$/', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $offset = (int) $m[2];
+            if ($offset < 0) {
+                $offset = max(0, strlen($val) + $offset);
+            }
+            if (isset($m[3]) && $m[3] !== '') {
+                $length = (int) $m[3];
+                return substr($val, $offset, $length);
+            }
+            return substr($val, $offset);
+        }
+
+        // ${var:-default}
+        if (preg_match('/^(\w+):-(.*)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? null;
+            return ($val !== null && $val !== '') ? $val : $this->expandWord($m[2]);
+        }
+
+        // ${var:=default}
+        if (preg_match('/^(\w+):=(.*)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? null;
+            if ($val !== null && $val !== '') {
+                return $val;
+            }
+            $expanded = $this->expandWord($m[2]);
+            $this->env[$m[1]] = $expanded;
+            return $expanded;
+        }
+
+        // ${var//pattern/replacement} -- global substitution
+        if (preg_match('/^(\w+)\/\/([^\/]*)\/(.*)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            $repl = $m[3];
+            if ($pat === '') {
+                return $val;
+            }
+            return str_replace($pat, $repl, $val);
+        }
+
+        // ${var/pattern/replacement} -- first substitution
+        if (preg_match('/^(\w+)\/([^\/]*)\/(.*)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            $repl = $m[3];
+            if ($pat === '') {
+                return $val;
+            }
+            $pos = strpos($val, $pat);
+            if ($pos === false) {
+                return $val;
+            }
+            return substr($val, 0, $pos) . $repl . substr($val, $pos + strlen($pat));
+        }
+
+        // ${var%%suffix} -- greedy suffix removal
+        if (preg_match('/^(\w+)%%(.+)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            return $this->removePattern($val, $pat, 'suffix', true);
+        }
+
+        // ${var%suffix} -- shortest suffix removal
+        if (preg_match('/^(\w+)%(.+)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            return $this->removePattern($val, $pat, 'suffix', false);
+        }
+
+        // ${var##prefix} -- greedy prefix removal
+        if (preg_match('/^(\w+)##(.+)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            return $this->removePattern($val, $pat, 'prefix', true);
+        }
+
+        // ${var#prefix} -- shortest prefix removal
+        if (preg_match('/^(\w+)#(.+)$/s', $expr, $m)) {
+            $val = $this->env[$m[1]] ?? '';
+            $pat = $m[2];
+            return $this->removePattern($val, $pat, 'prefix', false);
+        }
+
+        // Simple ${var}
+        if (preg_match('/^(\w+)$/', $expr, $m)) {
+            return $this->env[$m[1]] ?? '';
+        }
+
+        return '';
+    }
+
+    private function removePattern(string $val, string $pattern, string $side, bool $greedy): string
+    {
+        $regex = $this->globToRegex($pattern);
+
+        if ($side === 'prefix') {
+            if ($greedy) {
+                for ($i = strlen($val); $i >= 0; $i--) {
+                    if (preg_match($regex, substr($val, 0, $i))) {
+                        return substr($val, $i);
+                    }
+                }
+            } else {
+                for ($i = 0; $i <= strlen($val); $i++) {
+                    if (preg_match($regex, substr($val, 0, $i))) {
+                        return substr($val, $i);
+                    }
+                }
+            }
+        } else {
+            if ($greedy) {
+                for ($i = 0; $i <= strlen($val); $i++) {
+                    if (preg_match($regex, substr($val, $i))) {
+                        return substr($val, 0, $i);
+                    }
+                }
+            } else {
+                for ($i = strlen($val); $i >= 0; $i--) {
+                    if (preg_match($regex, substr($val, $i))) {
+                        return substr($val, 0, $i);
+                    }
+                }
+            }
+        }
+
+        return $val;
+    }
+
+    private function globToRegex(string $pattern): string
+    {
+        $reg = '^';
+        for ($i = 0; $i < strlen($pattern); $i++) {
+            $c = $pattern[$i];
+            if ($c === '*') {
+                $reg .= '.*';
+            } elseif ($c === '?') {
+                $reg .= '.';
+            } else {
+                $reg .= preg_quote($c, '/');
+            }
+        }
+        $reg .= '$';
+        return '/' . $reg . '/';
+    }
+
+    // -----------------------------------------------------------------------
+    // Builtins: test, [, printf, export, true, false
+    // -----------------------------------------------------------------------
+
+    private function cmdTest(array $args, string $stdin): ExecResult
+    {
+        return new ExecResult(exitCode: $this->evalTest($args) ? 0 : 1);
+    }
+
+    private function cmdBracket(array $args, string $stdin): ExecResult
+    {
+        if (empty($args) || end($args) !== ']') {
+            return new ExecResult(stderr: "[: missing ']'\n", exitCode: 2);
+        }
+        return new ExecResult(exitCode: $this->evalTest(array_slice($args, 0, -1)) ? 0 : 1);
+    }
+
+    private function cmdDoubleBracket(array $args, string $stdin): ExecResult
+    {
+        if (empty($args) || end($args) !== ']]') {
+            return new ExecResult(stderr: "[[: missing ']]'\n", exitCode: 2);
+        }
+        return new ExecResult(exitCode: $this->evalTest(array_slice($args, 0, -1)) ? 0 : 1);
+    }
+
+    private function evalTest(array $args): bool
+    {
+        if (empty($args)) {
+            return false;
+        }
+
+        // Negation
+        if ($args[0] === '!') {
+            return !$this->evalTest(array_slice($args, 1));
+        }
+
+        // Unary file/string tests
+        if (count($args) === 2) {
+            $op = $args[0];
+            $operand = $args[1];
+            if ($op === '-f') {
+                $p = $this->resolve($operand);
+                return $this->fs->exists($p) && !$this->fs->isDir($p);
+            }
+            if ($op === '-d') {
+                $p = $this->resolve($operand);
+                return $this->fs->isDir($p);
+            }
+            if ($op === '-e') {
+                $p = $this->resolve($operand);
+                return $this->fs->exists($p) || $this->fs->isDir($p);
+            }
+            if ($op === '-z') {
+                return strlen($operand) === 0;
+            }
+            if ($op === '-n') {
+                return strlen($operand) > 0;
+            }
+        }
+
+        // Single arg: true if non-empty
+        if (count($args) === 1) {
+            return strlen($args[0]) > 0;
+        }
+
+        // Binary operations
+        if (count($args) === 3) {
+            [$left, $op, $right] = $args;
+            if ($op === '=') {
+                return $left === $right;
+            }
+            if ($op === '!=') {
+                return $left !== $right;
+            }
+            if ($op === '-eq') {
+                return (int) $left === (int) $right;
+            }
+            if ($op === '-ne') {
+                return (int) $left !== (int) $right;
+            }
+            if ($op === '-lt') {
+                return (int) $left < (int) $right;
+            }
+            if ($op === '-gt') {
+                return (int) $left > (int) $right;
+            }
+            if ($op === '-le') {
+                return (int) $left <= (int) $right;
+            }
+            if ($op === '-ge') {
+                return (int) $left >= (int) $right;
+            }
+        }
+
+        return false;
+    }
+
+    private function cmdPrintf(array $args, string $stdin): ExecResult
+    {
+        if (empty($args)) {
+            return new ExecResult();
+        }
+        $format = $args[0];
+        $fmtArgs = array_slice($args, 1);
+        $argIdx = 0;
+        $result = '';
+        $i = 0;
+        $len = strlen($format);
+
+        while ($i < $len) {
+            if ($format[$i] === '\\') {
+                $i++;
+                if ($i < $len) {
+                    if ($format[$i] === 'n') {
+                        $result .= "\n";
+                        $i++;
+                    } elseif ($format[$i] === 't') {
+                        $result .= "\t";
+                        $i++;
+                    } elseif ($format[$i] === '\\') {
+                        $result .= '\\';
+                        $i++;
+                    } else {
+                        $result .= $format[$i];
+                        $i++;
+                    }
+                }
+                continue;
+            }
+
+            if ($format[$i] === '%' && $i + 1 < $len) {
+                $i++;
+                if ($format[$i] === '%') {
+                    $result .= '%';
+                    $i++;
+                    continue;
+                }
+                // Parse format spec
+                $spec = '';
+                while ($i < $len && preg_match('/[\d.\-]/', $format[$i])) {
+                    $spec .= $format[$i];
+                    $i++;
+                }
+                if ($i < $len) {
+                    $type = $format[$i];
+                    $i++;
+                    $arg = $fmtArgs[$argIdx] ?? '';
+                    $argIdx++;
+
+                    if ($type === 's') {
+                        $result .= $arg;
+                    } elseif ($type === 'd') {
+                        $result .= (string) ((int) $arg);
+                    } elseif ($type === 'f') {
+                        $num = (float) $arg ?: 0.0;
+                        if (preg_match('/\.(\d+)/', $spec, $precMatch)) {
+                            $prec = (int) $precMatch[1];
+                        } else {
+                            $prec = 6;
+                        }
+                        $result .= number_format($num, $prec, '.', '');
+                    } else {
+                        $result .= $arg;
+                    }
+                }
+                continue;
+            }
+
+            $result .= $format[$i];
+            $i++;
+        }
+
+        return new ExecResult(stdout: $result);
+    }
+
+    private function cmdExport(array $args, string $stdin): ExecResult
+    {
+        foreach ($args as $arg) {
+            if (preg_match('/^([A-Za-z_]\w*)=(.*)$/s', $arg, $m)) {
+                $this->env[$m[1]] = $this->expandWord($m[2]);
+            }
+        }
+        return new ExecResult();
+    }
+
+    private function cmdTrue(array $args, string $stdin): ExecResult
+    {
+        return new ExecResult();
+    }
+
+    private function cmdFalse(array $args, string $stdin): ExecResult
+    {
+        return new ExecResult(exitCode: 1);
+    }
+
+    // -- Built-in commands (original 23) ------------------------------------
 
     /**
      * @param list<string> $args

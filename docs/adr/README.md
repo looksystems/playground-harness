@@ -21,6 +21,8 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0012](0012-virtual-shell-architecture.md) | Virtual Shell Architecture (HasShell) |
 | [0013](0013-shell-registry-singleton.md) | Shell Registry as Global Singleton |
 | [0014](0014-pure-emulation-security-model.md) | Pure Emulation Security Model |
+| [0019](0019-shell-recursive-descent-parser.md) | Recursive-Descent Parser for Shell Bash Syntax |
+| [0020](0020-shell-expansion-safety-limits.md) | Shell Expansion Safety Limits |
 
 ### Events and Streaming
 

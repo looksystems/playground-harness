@@ -55,8 +55,14 @@ trait HasShell
             name: 'exec',
             description: 'Execute a bash command in the virtual filesystem. '
                 . 'Supports: ls, cat, grep, find, head, tail, wc, sort, uniq, '
-                . 'cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, echo, stat. '
-                . 'Pipes (|) and redirects (>, >>) are supported.',
+                . 'cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, echo, stat, '
+                . 'test, [, printf, true, false, export. '
+                . 'Pipes (|), redirects (>, >>), semicolons (;), && and || operators, '
+                . 'variable assignment (VAR=value), command substitution ($() and backticks), '
+                . 'parameter expansion (${var:-default}, ${var:=default}, ${#var}, ${var:offset:length}, '
+                . '${var//pat/repl}, ${var%%suffix}, ${var%suffix}, ${var##prefix}, ${var#prefix}), '
+                . 'if/then/elif/else/fi, for/in/do/done, while/do/done, case/in/esac, '
+                . '$((expr)) arithmetic, and $? exit code tracking.',
             parameters: [
                 'type' => 'object',
                 'properties' => [

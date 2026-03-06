@@ -123,7 +123,7 @@ stateDiagram-v2
 | **ParsedEvent** | Data object: carries event type, parsed data dict, optional async stream iterator, optional raw YAML |
 | **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class |
 | **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
-| **Shell** | Command interpreter: 23 built-in commands over a VirtualFS, pipes, redirects, command chaining, variable expansion |
+| **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf` |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
 | **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()` |
 
@@ -132,6 +132,14 @@ stateDiagram-v2
 ## Virtual Shell
 
 The virtual shell provides agents with a single `exec` tool for exploring context mounted as files. Instead of building specialized tools for each query pattern, you mount data as files and let the model use Unix commands it already understands.
+
+The shell uses a hand-rolled tokenizer and recursive-descent parser producing a lightweight AST, which is then walked by an evaluator. This supports:
+
+- **30 built-in commands** — cat, echo, find, grep, head, ls, pwd, sort, tail, tee, touch, tree, uniq, wc, mkdir, cp, rm, stat, cut, tr, sed, jq, cd, test, `[`, `[[`, printf, export, true, false
+- **Control flow** — `if/elif/else/fi`, `for/in/do/done`, `while/do/done`, `case/in/esac`
+- **Operators** — pipes (`|`), redirects (`>`, `>>`), semicolons (`;`), `&&`, `||`
+- **Expansion** — `$VAR`, `${var:-default}`, `${#var}`, `${var//pat/repl}`, `$(cmd)`, `$((expr))`, backticks
+- **Safety limits** — max iterations (10,000), command substitution depth (10), variable size (64KB), expansion cap (1,000), parser nesting depth (50)
 
 ### Component Relationships
 
