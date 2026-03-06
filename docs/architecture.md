@@ -23,20 +23,28 @@ classDiagram
     }
     class HasHooks {
         +on(event, callback)
+        +off(event, callback)
+        +hooks
         #_emit(event, ...args)
     }
     class HasMiddleware {
         +use(middleware)
+        +remove_middleware(middleware)
+        +middleware
         #_run_pre(messages, context)
         #_run_post(message, context)
     }
     class UsesTools {
         +register_tool(fn_or_def)
+        +unregister_tool(name)
+        +tools
         #_tools_schema()
         #_execute_tool(name, args)
     }
     class EmitsEvents {
         +register_event(event_type)
+        +unregister_event(name)
+        +events
         +bus: MessageBus
         #_resolve_active_events(events)
         #_build_event_prompt(event_types)
@@ -53,7 +61,18 @@ classDiagram
         +unmount(name)
         +skills
     }
-    class StandardAgent
+    class AgentBuilder {
+        +system(prompt)
+        +tools(...defs)
+        +middleware(...mws)
+        +on(event, callback)
+        +skill(skill, config)
+        +create()
+    }
+    class StandardAgent {
+        +build(model)$ AgentBuilder
+    }
+    StandardAgent ..> AgentBuilder : creates
     StandardAgent --|> BaseAgent
     StandardAgent ..|> HasHooks
     StandardAgent ..|> HasMiddleware
@@ -122,14 +141,15 @@ stateDiagram-v2
 | Component | Responsibility |
 |-----------|---------------|
 | **BaseAgent** | Core agent loop: manages turns, calls LLM, handles streaming responses, tool execution dispatch |
-| **HasHooks** | Lifecycle event system: register callbacks for 22 hook events, concurrent dispatch (Python/TS) or sequential (PHP) |
-| **HasMiddleware** | Sequential message pipeline: pre-processing of outgoing messages, post-processing of responses |
-| **UsesTools** | Tool registration and execution: declarative definitions, automatic JSON schema from type hints, async execution |
-| **EmitsEvents** | Event emission configuration: registers event types, builds prompts instructing LLM to emit events, manages per-run event selection |
+| **HasHooks** | Lifecycle event system: `on()`/`off()` for 22 hook events, read-only `hooks` accessor, concurrent dispatch (Python/TS) or sequential (PHP) |
+| **HasMiddleware** | Sequential message pipeline: `use()`/`remove_middleware()`, read-only `middleware` accessor, pre/post processing |
+| **UsesTools** | Tool registration and execution: `register_tool()`/`unregister_tool()`, read-only `tools` accessor, automatic JSON schema from type hints, async execution |
+| **EmitsEvents** | Event emission configuration: `register_event()`/`unregister_event()`, read-only `events` accessor, builds prompts instructing LLM to emit events, manages per-run event selection |
 | **EventStreamParser** | Token stream processor: extracts YAML events from LLM output, handles buffered and streaming modes, yields clean text |
 | **MessageBus** | Pub/sub event routing: topic-based subscription, wildcard support, cycle detection via depth counter |
 | **ParsedEvent** | Data object: carries event type, parsed data dict, optional async stream iterator, optional raw YAML |
-| **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class |
+| **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class. Provides `build(model)` static factory for declarative configuration |
+| **AgentBuilder** | Declarative builder facade: fluent chaining for tools, middleware, hooks, events, skills, shell, and commands. Async `create()` terminal returns a configured `StandardAgent` |
 | **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
 | **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |

@@ -26,6 +26,7 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0021](0021-custom-command-registration.md) | Custom Command Registration for Virtual Shell |
 | [0022](0022-shell-and-registration-hooks.md) | Shell, Registration, and CWD Hooks |
 | [0024](0024-has-skills-mixin.md) | HasSkills Mixin |
+| [0025](0025-fluent-builder-symmetric-apis.md) | Fluent Builder and Symmetric Mixin APIs |
 
 ### Events and Streaming
 

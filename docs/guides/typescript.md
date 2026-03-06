@@ -39,6 +39,27 @@ const result = await agent.run([{ role: "user", content: "Hello" }]);
 const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))));
 ```
 
+### Using the Builder (declarative setup)
+
+`StandardAgent.build()` provides a fluent interface for configuring an agent declaratively:
+
+```typescript
+import { StandardAgent } from "./standard-agent.js";
+import { HookEvent } from "./has-hooks.js";
+
+const agent = await StandardAgent.build("gpt-4")
+  .system("You are a helpful assistant.")
+  .maxTurns(10)
+  .tools(searchTool, calcTool)
+  .middleware(loggingMiddleware)
+  .on(HookEvent.RUN_START, () => console.log("started"))
+  .skill(new WebBrowsingSkill())
+  .shell()
+  .create();
+```
+
+All methods except `.create()` are synchronous and return the builder. `.create()` is `async` because skill mounting requires it.
+
 ### Custom composition (only what you need)
 
 Pick the mixins you actually need and compose them yourself:
@@ -63,6 +84,14 @@ agent.on(HookEvent.RUN_START, () => console.log("Run started"));
 agent.on(HookEvent.TOOL_CALL, (name, args) => console.log(`Calling ${name}`));
 ```
 
+Remove a hook with `off()`:
+
+```typescript
+agent.off(HookEvent.RUN_START, myCallback);
+```
+
+All registration methods return `this` for fluent chaining. Read-only state is available via public properties: `agent.hooks`, `agent.middlewareStack`, `agent.tools`, `agent.eventRegistry`.
+
 ## Middleware
 
 Middleware implements the `Middleware` interface, which has two optional methods: `pre()` runs before the LLM call and `post()` runs after.
@@ -82,6 +111,8 @@ const logger: Middleware = {
 };
 agent.use(logger);
 ```
+
+Remove with `agent.removeMiddleware(logger)`.
 
 ## Tools
 

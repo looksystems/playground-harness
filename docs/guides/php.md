@@ -50,6 +50,27 @@ class StandardAgent extends BaseAgent
 }
 ```
 
+### Using the Builder (declarative setup)
+
+`StandardAgent::build()` provides a fluent interface for configuring an agent declaratively:
+
+```php
+use AgentHarness\StandardAgent;
+use AgentHarness\HookEvent;
+
+$agent = StandardAgent::build('gpt-4')
+    ->system('You are a helpful assistant.')
+    ->maxTurns(10)
+    ->tools($searchTool, $calcTool)
+    ->middleware(new LoggingMiddleware())
+    ->on(HookEvent::RunStart, fn() => print("started\n"))
+    ->skill(new WebBrowsingSkill())
+    ->shell()
+    ->create();
+```
+
+All methods return the builder for chaining. `create()` is synchronous in PHP.
+
 ### Custom composition
 
 Include only the capabilities you need:
@@ -78,6 +99,14 @@ $agent->on(HookEvent::TOOL_CALL, function (string $name, array $args) {
 });
 ```
 
+Remove a hook with `off()`:
+
+```php
+$agent->off(HookEvent::RunStart, $callback);
+```
+
+All registration methods return `$this` for fluent chaining. Read-only accessors: `$agent->getHooks()`, `$agent->getMiddleware()`, `$agent->getTools()`, `$agent->getEvents()`.
+
 ## Middleware
 
 Implement the `Middleware` interface or extend `BaseMiddleware`. The pipeline
@@ -103,6 +132,8 @@ class LoggingMiddleware extends BaseMiddleware
 
 $agent->use(new LoggingMiddleware());
 ```
+
+Remove with `$agent->removeMiddleware($mw)`.
 
 ## Tools
 

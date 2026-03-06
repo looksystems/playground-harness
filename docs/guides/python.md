@@ -26,6 +26,29 @@ agent = StandardAgent(model="gpt-4", system="You are a helpful assistant.")
 result = await agent.run([{"role": "user", "content": "Hello"}])
 ```
 
+### Using the Builder (declarative setup)
+
+`StandardAgent.build()` provides a fluent interface for configuring an agent declaratively:
+
+```python
+from src.python.standard_agent import StandardAgent
+from src.python.has_hooks import HookEvent
+
+agent = await (
+    StandardAgent.build("gpt-4")
+    .system("You are a helpful assistant.")
+    .max_turns(10)
+    .tools(search_tool, calc_tool)
+    .middleware(LoggingMiddleware())
+    .on(HookEvent.RUN_START, lambda: print("started"))
+    .skill(WebBrowsingSkill())
+    .shell(cwd="/workspace")
+    .create()
+)
+```
+
+All methods except `.create()` are synchronous and return the builder. `.create()` is `async` because skill mounting requires it.
+
 ### Custom composition (only what you need)
 
 Pick the mixins your agent actually requires:
@@ -58,6 +81,27 @@ agent.on(HookEvent.TOOL_CALL, lambda name, args: print(f"Calling {name}"))
 
 Hooks dispatch concurrently via `asyncio.gather` with `return_exceptions=True`. Both sync and async callbacks are supported.
 
+Remove a hook with `off()`:
+
+```python
+agent.off(HookEvent.RUN_START, my_callback)
+```
+
+All registration methods return `self` for fluent chaining:
+
+```python
+agent.on(HookEvent.RUN_START, on_start).on(HookEvent.RUN_END, on_end)
+```
+
+Read-only accessors return copies of internal state:
+
+```python
+agent.hooks       # dict[HookEvent, list[Callable]] — copy
+agent.middleware   # list[BaseMiddleware] — copy
+agent.tools        # dict[str, ToolDef] — copy
+agent.events       # dict[str, EventType] — copy
+```
+
 ## Middleware
 
 Middleware forms a sequential pipeline. Each middleware implements `pre()` to process messages before the LLM call and `post()` to process the response after.
@@ -77,7 +121,7 @@ class LoggingMiddleware(BaseMiddleware):
 agent.use(LoggingMiddleware())
 ```
 
-Middleware executes in the order it is registered via `agent.use()`.
+Middleware executes in the order it is registered via `agent.use()`. Remove with `agent.remove_middleware(mw)`.
 
 ## Tools
 
