@@ -62,7 +62,8 @@ trait HasShell
                 . 'parameter expansion (${var:-default}, ${var:=default}, ${#var}, ${var:offset:length}, '
                 . '${var//pat/repl}, ${var%%suffix}, ${var%suffix}, ${var##prefix}, ${var#prefix}), '
                 . 'if/then/elif/else/fi, for/in/do/done, while/do/done, case/in/esac, '
-                . '$((expr)) arithmetic, and $? exit code tracking.',
+                . '$((expr)) arithmetic, and $? exit code tracking. '
+                . 'Custom commands registered via registerCommand() are also available.',
             parameters: [
                 'type' => 'object',
                 'properties' => [
@@ -105,5 +106,15 @@ trait HasShell
     public function execCommand(string $command): ExecResult
     {
         return $this->shell()->exec($command);
+    }
+
+    public function registerCommand(string $name, \Closure $handler): void
+    {
+        $this->shell()->registerCommand($name, $handler);
+    }
+
+    public function unregisterCommand(string $name): void
+    {
+        $this->shell()->unregisterCommand($name);
     }
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from src.python.virtual_fs import VirtualFS
 from src.python.shell import Shell, ExecResult, ShellRegistry
@@ -62,7 +62,8 @@ class HasShell:
                 "Flow control: if/then/elif/else/fi, for/in/do/done, while/do/done, case/in/esac. "
                 "Features: VAR=assignment, $(cmd) substitution, $((expr)) arithmetic, "
                 "${var:-default} expansion, ${var:=default}, ${#var}, "
-                "${var:offset:length}, ${var//pat/repl}, ${var%suffix}, ${var##prefix}."
+                "${var:offset:length}, ${var//pat/repl}, ${var%suffix}, ${var##prefix}. "
+                "Custom commands registered via register_command() are also available."
             ),
             function=exec_command,
             parameters={
@@ -89,3 +90,9 @@ class HasShell:
 
     def exec(self, command: str) -> ExecResult:
         return self.shell.exec(command)
+
+    def register_command(self, name: str, handler: Callable) -> None:
+        self.shell.register_command(name, handler)
+
+    def unregister_command(self, name: str) -> None:
+        self.shell.unregister_command(name)

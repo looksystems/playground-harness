@@ -23,6 +23,7 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0014](0014-pure-emulation-security-model.md) | Pure Emulation Security Model |
 | [0019](0019-shell-recursive-descent-parser.md) | Recursive-Descent Parser for Shell Bash Syntax |
 | [0020](0020-shell-expansion-safety-limits.md) | Shell Expansion Safety Limits |
+| [0021](0021-custom-command-registration.md) | Custom Command Registration for Virtual Shell |
 
 ### Events and Streaming
 

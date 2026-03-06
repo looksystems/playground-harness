@@ -45,6 +45,8 @@ classDiagram
         +fs: VirtualFS
         +shell: Shell
         +exec(command)
+        +registerCommand(name, handler)
+        +unregisterCommand(name)
     }
     class StandardAgent
     StandardAgent --|> BaseAgent
@@ -123,9 +125,9 @@ stateDiagram-v2
 | **ParsedEvent** | Data object: carries event type, parsed data dict, optional async stream iterator, optional raw YAML |
 | **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class |
 | **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
-| **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf` |
+| **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
-| **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()` |
+| **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell |
 
 ---
 
@@ -139,6 +141,7 @@ The shell uses a hand-rolled tokenizer and recursive-descent parser producing a 
 - **Control flow** — `if/elif/else/fi`, `for/in/do/done`, `while/do/done`, `case/in/esac`
 - **Operators** — pipes (`|`), redirects (`>`, `>>`), semicolons (`;`), `&&`, `||`
 - **Expansion** — `$VAR`, `${var:-default}`, `${#var}`, `${var//pat/repl}`, `$(cmd)`, `$((expr))`, backticks
+- **Custom commands** — `registerCommand(name, handler)` to add domain-specific commands, `unregisterCommand(name)` to remove them. Custom commands compose with pipes, redirects, and control flow like built-ins. Survive `clone()`.
 - **Safety limits** — max iterations (10,000), command substitution depth (10), variable size (64KB), expansion cap (1,000), parser nesting depth (50)
 
 ### Component Relationships
@@ -156,6 +159,8 @@ classDiagram
     }
     class Shell {
         +exec(command) ExecResult
+        +registerCommand(name, handler)
+        +unregisterCommand(name)
         +fs: VirtualFS
         +cwd: string
         +env: dict
@@ -171,6 +176,8 @@ classDiagram
         +fs: VirtualFS
         +shell: Shell
         +exec(command)
+        +registerCommand(name, handler)
+        +unregisterCommand(name)
     }
     Shell --> VirtualFS : owns
     ShellRegistry --> Shell : stores templates

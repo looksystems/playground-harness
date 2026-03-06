@@ -3,7 +3,7 @@
  */
 
 import { VirtualFS } from "./virtual-fs.js";
-import { Shell, ShellRegistry, ExecResult } from "./shell.js";
+import { Shell, ShellRegistry, ExecResult, CmdHandler } from "./shell.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -55,7 +55,8 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
           "cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, echo, stat, test, printf. " +
           "Operators: pipes (|), redirects (>, >>), && (and), || (or), ; (sequence). " +
           "Flow control: if/then/elif/else/fi, for/in/do/done, while/do/done, case/in/esac. " +
-          "Features: VAR=value assignment, $(cmd) substitution, $((expr)) arithmetic, ${var:-default} expansion.",
+          "Features: VAR=value assignment, $(cmd) substitution, $((expr)) arithmetic, ${var:-default} expansion. " +
+          "Custom commands registered via registerCommand() are also available.",
         execute: (args: Record<string, any>): string => {
           const result = this.exec(args["command"]);
           const parts: string[] = [];
@@ -88,6 +89,14 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
 
     exec(command: string): ExecResult {
       return this.shell.exec(command);
+    }
+
+    registerCommand(name: string, handler: CmdHandler): void {
+      this.shell.registerCommand(name, handler);
+    }
+
+    unregisterCommand(name: string): void {
+      this.shell.unregisterCommand(name);
     }
   };
 }

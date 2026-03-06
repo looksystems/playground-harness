@@ -599,3 +599,53 @@ class TestShellRegistry:
         ShellRegistry.reset()
         assert not ShellRegistry.has("a")
         assert not ShellRegistry.has("b")
+
+
+class TestCustomCommands:
+    def test_register_and_execute(self):
+        sh = Shell(VirtualFS())
+        sh.register_command("greet", lambda args, stdin: ExecResult(
+            stdout=f"hello {' '.join(args)}\n",
+        ))
+        r = sh.exec("greet world")
+        assert r.stdout == "hello world\n"
+        assert r.exit_code == 0
+
+    def test_args_and_stdin(self):
+        sh = Shell(VirtualFS())
+        sh.register_command("mycat", lambda args, stdin: ExecResult(
+            stdout=f"args={','.join(args)};stdin={stdin}",
+        ))
+        r = sh.exec("echo data | mycat foo bar")
+        assert r.stdout == "args=foo,bar;stdin=data\n"
+
+    def test_override_builtin(self):
+        sh = Shell(VirtualFS())
+        sh.register_command("echo", lambda args, stdin: ExecResult(stdout="custom\n"))
+        r = sh.exec("echo anything")
+        assert r.stdout == "custom\n"
+
+    def test_clone_preserves_custom_commands(self):
+        sh = Shell(VirtualFS())
+        sh.register_command("deploy", lambda args, stdin: ExecResult(stdout="deployed\n"))
+        cloned = sh.clone()
+        r = cloned.exec("deploy")
+        assert r.stdout == "deployed\n"
+
+    def test_allowed_commands_with_custom(self):
+        sh = Shell(VirtualFS(), allowed_commands={"echo"})
+        sh.register_command("deploy", lambda args, stdin: ExecResult(stdout="ok\n"))
+        assert sh.exec("deploy").stdout == "ok\n"
+        assert sh.exec("cat /foo").exit_code == 127
+
+    def test_unregister_command(self):
+        sh = Shell(VirtualFS())
+        sh.register_command("tmp", lambda args, stdin: ExecResult(stdout="tmp\n"))
+        assert sh.exec("tmp").stdout == "tmp\n"
+        sh.unregister_command("tmp")
+        assert sh.exec("tmp").exit_code == 127
+
+    def test_unregister_builtin_raises(self):
+        sh = Shell(VirtualFS())
+        with pytest.raises(ValueError, match="Cannot unregister built-in command"):
+            sh.unregister_command("echo")

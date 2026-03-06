@@ -192,4 +192,35 @@ agent = MyAgent(model="...", shell="data-explorer")
 agent.fs.write("/data/results.json", results)  # only this agent sees this
 ```
 
-Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) for architecture details.
+### Custom commands
+
+Register domain-specific commands that work like built-ins — composable with pipes, redirects, and control flow:
+
+```python
+from shell import Shell, ExecResult
+from virtual_fs import VirtualFS
+
+shell = Shell(fs=VirtualFS())
+
+def deploy(args: list[str], stdin: str) -> ExecResult:
+    return ExecResult(stdout=f"Deployed {args[0]} to {args[1] if len(args) > 1 else 'production'}\n")
+
+shell.register_command("deploy", deploy)
+shell.exec("deploy my-app staging")
+
+# With an agent — delegates to the underlying shell
+agent.register_command("validate", lambda args, stdin: ExecResult(
+    stdout="ok\n" if is_valid(stdin) else "invalid\n",
+    exit_code=0 if is_valid(stdin) else 1,
+))
+
+# Unregister when no longer needed
+shell.unregister_command("deploy")
+
+# Built-ins cannot be unregistered
+shell.unregister_command("echo")  # raises ValueError
+```
+
+Custom commands survive `clone()` and `ShellRegistry.get()`, so registry templates can include domain commands.
+
+Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.

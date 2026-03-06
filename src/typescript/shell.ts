@@ -19,7 +19,7 @@ function makeResult(
   return { stdout, stderr, exitCode };
 }
 
-type CmdHandler = (args: string[], stdin: string) => ExecResult;
+export type CmdHandler = (args: string[], stdin: string) => ExecResult;
 
 export interface ShellOptions {
   fs?: VirtualFS;
@@ -656,6 +656,8 @@ export class Shell {
   maxIterations: number;
   private _allowedCommands: Set<string> | undefined;
   private _builtins: Map<string, CmdHandler>;
+  private _builtinNames: Set<string>;
+  private _customCommands: Map<string, CmdHandler>;
   private _iterationCounter: number;
   private _cmdSubDepth: number;
   private _expansionCount: number;
@@ -711,10 +713,31 @@ export class Shell {
     } else {
       this._builtins = new Map(all);
     }
+    this._builtinNames = new Set(all.map(([name]) => name));
+    this._customCommands = new Map();
+  }
+
+  registerCommand(name: string, handler: CmdHandler): void {
+    this._customCommands.set(name, handler);
+    this._builtins.set(name, handler);
+    if (this._allowedCommands) {
+      this._allowedCommands.add(name);
+    }
+  }
+
+  unregisterCommand(name: string): void {
+    if (this._builtinNames.has(name)) {
+      throw new Error(`Cannot unregister built-in command: ${name}`);
+    }
+    this._customCommands.delete(name);
+    this._builtins.delete(name);
+    if (this._allowedCommands) {
+      this._allowedCommands.delete(name);
+    }
   }
 
   clone(): Shell {
-    return new Shell({
+    const cloned = new Shell({
       fs: this.fs.clone(),
       cwd: this.cwd,
       env: { ...this.env },
@@ -724,6 +747,10 @@ export class Shell {
       maxOutput: this.maxOutput,
       maxIterations: this.maxIterations,
     });
+    for (const [name, handler] of this._customCommands) {
+      cloned.registerCommand(name, handler);
+    }
+    return cloned;
   }
 
   private _resolve(path: string): string {

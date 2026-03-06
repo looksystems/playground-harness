@@ -63,7 +63,7 @@ PHP uses Guzzle HTTP for raw API calls, constructing request bodies and parsing 
 
 ### 6. Virtual Shell
 
-The virtual shell implementation is nearly identical across all three languages — the same 23 commands, same pipe/redirect/chaining logic, same VirtualFS storage model. The differences are minor:
+The virtual shell implementation is nearly identical across all three languages — the same 30 commands, same pipe/redirect/chaining logic, same VirtualFS storage model, and the same `registerCommand()`/`unregisterCommand()` API for custom commands. The differences are minor:
 
 Python's VirtualFS supports `str | bytes` content, allowing binary files (images, protobuf). TypeScript and PHP are string-only; binary content would need to be base64-encoded.
 

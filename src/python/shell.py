@@ -660,16 +660,35 @@ class Shell:
             }
         else:
             self._builtins = dict(all_builtins)
+        self._builtin_names: set[str] = {k for k, _ in all_builtins}
+        self._custom_commands: dict[str, Callable] = {}
+
+    def register_command(self, name: str, handler: Callable) -> None:
+        self._custom_commands[name] = handler
+        self._builtins[name] = handler
+        if self._allowed_commands is not None:
+            self._allowed_commands.add(name)
+
+    def unregister_command(self, name: str) -> None:
+        if name in self._builtin_names:
+            raise ValueError(f"Cannot unregister built-in command: {name}")
+        self._custom_commands.pop(name, None)
+        self._builtins.pop(name, None)
+        if self._allowed_commands is not None:
+            self._allowed_commands.discard(name)
 
     def clone(self) -> Shell:
-        return Shell(
+        cloned = Shell(
             fs=self.fs.clone(),
             cwd=self.cwd,
             env=dict(self.env),
-            allowed_commands=self._allowed_commands,
+            allowed_commands=set(self._allowed_commands) if self._allowed_commands is not None else None,
             max_output=self.max_output,
             max_iterations=self.max_iterations,
         )
+        for name, handler in self._custom_commands.items():
+            cloned.register_command(name, handler)
+        return cloned
 
     def _resolve(self, path: str) -> str:
         if path.startswith("/"):

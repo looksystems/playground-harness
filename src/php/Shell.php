@@ -663,6 +663,10 @@ class Shell
 {
     /** @var array<string, \Closure> */
     private array $builtins;
+    /** @var array<string, \Closure> */
+    private array $customCommands = [];
+    /** @var array<string, true> */
+    private array $builtinNames = [];
 
     private int $iterationCounter = 0;
     private int $cmdSubDepth = 0;
@@ -720,11 +724,35 @@ class Shell
         } else {
             $this->builtins = $all;
         }
+        $this->builtinNames = array_fill_keys(array_keys($all), true);
+    }
+
+    public function registerCommand(string $name, \Closure $handler): void
+    {
+        $this->customCommands[$name] = $handler;
+        $this->builtins[$name] = $handler;
+        if ($this->allowedCommands !== null) {
+            $this->allowedCommands[] = $name;
+        }
+    }
+
+    public function unregisterCommand(string $name): void
+    {
+        if (isset($this->builtinNames[$name])) {
+            throw new \RuntimeException("Cannot unregister built-in command: {$name}");
+        }
+        unset($this->customCommands[$name], $this->builtins[$name]);
+        if ($this->allowedCommands !== null) {
+            $this->allowedCommands = array_values(array_filter(
+                $this->allowedCommands,
+                fn(string $cmd) => $cmd !== $name
+            ));
+        }
     }
 
     public function cloneShell(): self
     {
-        return new self(
+        $cloned = new self(
             fs: $this->fs->cloneFs(),
             cwd: $this->cwd,
             env: $this->env,
@@ -732,6 +760,10 @@ class Shell
             maxOutput: $this->maxOutput,
             maxIterations: $this->maxIterations,
         );
+        foreach ($this->customCommands as $name => $handler) {
+            $cloned->registerCommand($name, $handler);
+        }
+        return $cloned;
     }
 
     private function resolve(string $path): string

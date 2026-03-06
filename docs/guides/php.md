@@ -240,4 +240,36 @@ $agent = new MyAgent(model: 'gpt-4o', shell: 'data-explorer');
 $agent->fs()->write('/data/results.json', $results);  // only this agent sees this
 ```
 
-See [ADR 0012](../adr/0012-virtual-shell-architecture.md) for architecture details.
+### Custom commands
+
+Register domain-specific commands that work like built-ins — composable with pipes, redirects, and control flow:
+
+```php
+use AgentHarness\Shell;
+use AgentHarness\ExecResult;
+use AgentHarness\VirtualFS;
+
+$shell = new Shell(fs: new VirtualFS());
+
+$shell->registerCommand('deploy', function (array $args, string $stdin): ExecResult {
+    return new ExecResult(stdout: "Deployed {$args[0]} to " . ($args[1] ?? 'production') . "\n");
+});
+
+$shell->exec('deploy my-app staging');
+
+// With an agent — delegates to the underlying shell
+$agent->registerCommand('validate', function (array $args, string $stdin): ExecResult {
+    $valid = isValid($stdin);
+    return new ExecResult(stdout: $valid ? "ok\n" : "invalid\n", exitCode: $valid ? 0 : 1);
+});
+
+// Unregister when no longer needed
+$shell->unregisterCommand('deploy');
+
+// Built-ins cannot be unregistered
+$shell->unregisterCommand('echo'); // throws RuntimeException
+```
+
+Custom commands survive `cloneShell()` and `ShellRegistry::get()`, so registry templates can include domain commands.
+
+See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.

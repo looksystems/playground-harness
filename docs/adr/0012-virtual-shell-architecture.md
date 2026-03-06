@@ -38,4 +38,5 @@ HasShell works independently of UsesTools but auto-registers the `exec` tool whe
 - The registry pattern enables shared shell configurations without coupling agents to each other
 - All three language implementations must maintain the pure-emulation security guarantee — no real shell or filesystem access
 - StandardAgent gains a new optional mixin, increasing its surface area
+- Custom commands can be registered at runtime via `registerCommand()` — see [ADR 0021](0021-custom-command-registration.md)
 - Future hardening (readonly mode, size limits, path jailing, per-command timeouts, audit logging) is deferred but documented as requirements

@@ -1158,3 +1158,86 @@ describe("ShellRegistry", () => {
     expect(ShellRegistry.has("b")).toBe(false);
   });
 });
+
+describe("Custom commands", () => {
+  it("registers and executes a custom command", () => {
+    const sh = makeShell();
+    sh.registerCommand("greet", (args, stdin) => ({
+      stdout: `hello ${args.join(" ")}\n`,
+      stderr: "",
+      exitCode: 0,
+    }));
+    const r = sh.exec("greet world");
+    expect(r.stdout).toBe("hello world\n");
+    expect(r.exitCode).toBe(0);
+  });
+
+  it("passes args and stdin correctly", () => {
+    const sh = makeShell();
+    sh.registerCommand("mycat", (args, stdin) => ({
+      stdout: `args=${args.join(",")};stdin=${stdin}`,
+      stderr: "",
+      exitCode: 0,
+    }));
+    const r = sh.exec("echo data | mycat foo bar");
+    expect(r.stdout).toBe("args=foo,bar;stdin=data\n");
+  });
+
+  it("overrides a builtin", () => {
+    const sh = makeShell();
+    sh.registerCommand("echo", (args, stdin) => ({
+      stdout: "custom\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const r = sh.exec("echo anything");
+    expect(r.stdout).toBe("custom\n");
+  });
+
+  it("clone preserves custom commands", () => {
+    const sh = makeShell();
+    sh.registerCommand("deploy", (args, stdin) => ({
+      stdout: "deployed\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const cloned = sh.clone();
+    const r = cloned.exec("deploy");
+    expect(r.stdout).toBe("deployed\n");
+  });
+
+  it("works with allowedCommands filtering", () => {
+    const fs = new VirtualFS();
+    const sh = new Shell({
+      fs,
+      cwd: "/",
+      allowedCommands: new Set(["echo"]),
+    });
+    sh.registerCommand("deploy", (args, stdin) => ({
+      stdout: "ok\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    expect(sh.exec("deploy").stdout).toBe("ok\n");
+    expect(sh.exec("cat /foo").exitCode).toBe(127);
+  });
+
+  it("unregisterCommand removes the command", () => {
+    const sh = makeShell();
+    sh.registerCommand("tmp", (args, stdin) => ({
+      stdout: "tmp\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    expect(sh.exec("tmp").stdout).toBe("tmp\n");
+    sh.unregisterCommand("tmp");
+    expect(sh.exec("tmp").exitCode).toBe(127);
+  });
+
+  it("unregisterCommand throws on built-in names", () => {
+    const sh = makeShell();
+    expect(() => sh.unregisterCommand("echo")).toThrow(
+      "Cannot unregister built-in command"
+    );
+  });
+});

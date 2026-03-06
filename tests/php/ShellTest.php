@@ -1243,4 +1243,81 @@ class ShellTest extends TestCase
         $r = $sh->exec('case file.txt in *.txt) echo text;; *.py) echo python;; esac');
         $this->assertSame("text\n", $r->stdout);
     }
+
+    // -- Custom commands --
+
+    public function testRegisterAndExecuteCustomCommand(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('greet', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: 'hello ' . implode(' ', $args) . "\n");
+        });
+        $r = $sh->exec('greet world');
+        $this->assertSame("hello world\n", $r->stdout);
+        $this->assertSame(0, $r->exitCode);
+    }
+
+    public function testCustomCommandReceivesArgsAndStdin(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('mycat', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: 'args=' . implode(',', $args) . ';stdin=' . $stdin);
+        });
+        $r = $sh->exec('echo data | mycat foo bar');
+        $this->assertSame("args=foo,bar;stdin=data\n", $r->stdout);
+    }
+
+    public function testCustomCommandOverridesBuiltin(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('echo', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "custom\n");
+        });
+        $r = $sh->exec('echo anything');
+        $this->assertSame("custom\n", $r->stdout);
+    }
+
+    public function testClonePreservesCustomCommands(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('deploy', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "deployed\n");
+        });
+        $cloned = $sh->cloneShell();
+        $r = $cloned->exec('deploy');
+        $this->assertSame("deployed\n", $r->stdout);
+    }
+
+    public function testAllowedCommandsWithCustom(): void
+    {
+        $sh = new Shell(
+            fs: new VirtualFS(),
+            cwd: '/',
+            allowedCommands: ['echo'],
+        );
+        $sh->registerCommand('deploy', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "ok\n");
+        });
+        $this->assertSame("ok\n", $sh->exec('deploy')->stdout);
+        $this->assertSame(127, $sh->exec('cat /foo')->exitCode);
+    }
+
+    public function testUnregisterCommand(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('tmp', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "tmp\n");
+        });
+        $this->assertSame("tmp\n", $sh->exec('tmp')->stdout);
+        $sh->unregisterCommand('tmp');
+        $this->assertSame(127, $sh->exec('tmp')->exitCode);
+    }
+
+    public function testUnregisterBuiltinThrows(): void
+    {
+        $sh = $this->makeShell();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot unregister built-in command');
+        $sh->unregisterCommand('echo');
+    }
 }

@@ -54,6 +54,8 @@ The virtual shell provides a single `exec` tool backed by an in-memory filesyste
 
 The virtual filesystem and shell interpreter are pure emulation — no real shell or filesystem is ever accessed. Every command is a function in the host language operating on in-memory data structures. This provides the full power of shell-based exploration without any security risk.
 
+When the built-in commands aren't enough, `registerCommand()` lets you add domain-specific operations (deploy, validate, query) that compose naturally with pipes, redirects, and control flow — keeping the LLM's tool surface to a single `exec` entry point rather than proliferating specialized tools.
+
 ## 7. Cycle-Safe Event Propagation
 
 The `MessageBus` uses a depth counter to prevent infinite recursion when event handlers publish new events. Each nested publish increments the counter; when it exceeds the configured maximum (default: 10), the event is silently dropped and a warning is logged.
