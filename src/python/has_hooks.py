@@ -29,10 +29,10 @@ class HookEvent(str, Enum):
     TOOL_UNREGISTER = "tool_unregister"
     COMMAND_REGISTER = "command_register"
     COMMAND_UNREGISTER = "command_unregister"
-    SLASH_COMMAND_REGISTER = "slash_command_register"
-    SLASH_COMMAND_UNREGISTER = "slash_command_unregister"
-    SLASH_COMMAND_CALL = "slash_command_call"
-    SLASH_COMMAND_RESULT = "slash_command_result"
+    SKILL_MOUNT = "skill_mount"
+    SKILL_UNMOUNT = "skill_unmount"
+    SKILL_SETUP = "skill_setup"
+    SKILL_TEARDOWN = "skill_teardown"
 
 
 async def _call_fn(fn: Callable, *args: Any) -> Any:

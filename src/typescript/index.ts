@@ -7,7 +7,6 @@ export { EventStreamParser, EventType, StreamConfig, EventCallback } from "./eve
 export { EmitsEvents } from "./emits-events.js";
 export { StandardAgent } from "./standard-agent.js";
 export { HasShell } from "./has-shell.js";
-export { HasCommands, CommandDef } from "./has-commands.js";
-export { SlashCommandMiddleware } from "./slash-command-middleware.js";
+export { HasSkills, Skill, SkillContext, SkillManager, SkillPromptMiddleware } from "./has-skills.js";
 export { VirtualFS } from "./virtual-fs.js";
 export { Shell, ShellRegistry, ExecResult } from "./shell.js";

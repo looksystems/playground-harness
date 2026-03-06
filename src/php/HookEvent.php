@@ -24,8 +24,8 @@ enum HookEvent: string
     case ToolUnregister = 'tool_unregister';
     case CommandRegister = 'command_register';
     case CommandUnregister = 'command_unregister';
-    case SlashCommandRegister = 'slash_command_register';
-    case SlashCommandUnregister = 'slash_command_unregister';
-    case SlashCommandCall = 'slash_command_call';
-    case SlashCommandResult = 'slash_command_result';
+    case SkillMount = 'skill_mount';
+    case SkillUnmount = 'skill_unmount';
+    case SkillSetup = 'skill_setup';
+    case SkillTeardown = 'skill_teardown';
 }

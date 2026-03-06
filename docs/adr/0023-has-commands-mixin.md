@@ -1,14 +1,16 @@
-# 23. HasCommands Mixin — Custom Slash Commands
+# 23. HasCommands Mixin (Superseded)
 
 Date: 2026-03-06
 
 ## Status
 
-Accepted
+Superseded by [ADR 0024](0024-has-skills-mixin.md)
+
+> HasCommands was replaced by the more capable HasSkills mixin in ADR 0024. Skills subsume slash commands -- any command is just a skill with a single tool.
 
 ## Context
 
-ADR 0017 established that the skill system remains in examples, and that promoting specific capabilities as core mixins is the preferred path. Users and middleware need a way to register agent-level directives — slash commands like `/help`, `/reset`, `/status` — that are distinct from shell commands (ADR 0021) and optionally visible to the LLM as tools.
+ADR 0017 established that the skill system remains in examples, and that promoting specific capabilities as core mixins is the preferred path. Users and middleware need a way to register agent-level directives -- slash commands like `/help`, `/reset`, `/status` -- that are distinct from shell commands (ADR 0021) and optionally visible to the LLM as tools.
 
 Shell commands (HasShell) serve a different purpose: they model a virtual shell interpreter with pipes, redirects, and control flow. Slash commands are standalone agent directives with simple `(args: dict) -> str` handlers.
 

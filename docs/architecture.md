@@ -6,7 +6,7 @@ This document describes the internal architecture of the harness framework. It c
 
 ## Trait/Mixin Composition Model
 
-Agents are assembled from independent mixins (or traits, depending on the language). Each mixin encapsulates a single capability -- hooks, middleware, tools, event emission, shell, or commands -- and can be used in isolation or combined freely. `StandardAgent` is the pre-composed class that pulls in every mixin alongside `BaseAgent`, giving you a fully-featured agent out of the box.
+Agents are assembled from independent mixins (or traits, depending on the language). Each mixin encapsulates a single capability -- hooks, middleware, tools, event emission, shell, or skills -- and can be used in isolation or combined freely. `StandardAgent` is the pre-composed class that pulls in every mixin alongside `BaseAgent`, giving you a fully-featured agent out of the box.
 
 Because the mixins are independent, you can also subclass `BaseAgent` directly and mix in only what you need. The only hard dependency is that `EmitsEvents` expects `EventStreamParser` to be wired into the response-handling path.
 
@@ -48,12 +48,10 @@ classDiagram
         +registerCommand(name, handler)
         +unregisterCommand(name)
     }
-    class HasCommands {
-        +registerSlashCommand(def)
-        +unregisterSlashCommand(name)
-        +executeSlashCommand(name, args)
-        +interceptSlashCommand(text)
-        +commands
+    class HasSkills {
+        +mount(skill)
+        +unmount(name)
+        +skills
     }
     class StandardAgent
     StandardAgent --|> BaseAgent
@@ -62,7 +60,7 @@ classDiagram
     StandardAgent ..|> UsesTools
     StandardAgent ..|> EmitsEvents
     StandardAgent ..|> HasShell
-    StandardAgent ..|> HasCommands
+    StandardAgent ..|> HasSkills
 ```
 
 Solid lines denote inheritance; dashed lines denote mixin/trait implementation.
@@ -136,9 +134,9 @@ stateDiagram-v2
 | **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
 | **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell. Emits `shell_call`, `shell_result`, `shell_not_found`, and `shell_cwd` hooks when `HasHooks` is also composed |
-| **HasCommands** | Slash command mixin: registers user-facing `/command` directives with `CommandDef`, optionally auto-registers them as `slash_{name}` tools when `UsesTools` is composed (controlled by `llm_visible` per-command and `llm_commands_enabled` per-agent). Emits `slash_command_register`, `slash_command_unregister`, `slash_command_call`, and `slash_command_result` hooks |
-| **CommandDef** | Data object: carries command name, description, handler, parameters schema, and `llm_visible` flag |
-| **SlashCommandMiddleware** | Opt-in middleware: intercepts user messages starting with `/`, parses the command, executes it, and replaces the message content with the result |
+| **HasSkills** | Skill mixin: mounts/unmounts capability bundles (`Skill`) that combine tools, instructions, middleware, hooks, and lifecycle management. Resolves skill dependencies transitively. Emits `skill_mount`, `skill_unmount`, `skill_setup`, and `skill_teardown` hooks |
+| **Skill** | Base class/interface: defines the skill contract -- name, description, version, instructions, dependencies, context, setup(), teardown(), tools(), middleware(), hooks() |
+| **SkillPromptMiddleware** | Middleware: auto-injects mounted skill instructions into the system prompt |
 
 ---
 

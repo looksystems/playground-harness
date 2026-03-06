@@ -36,7 +36,7 @@ const result = await agent.run([{ role: "user", content: "Hello" }]);
 `StandardAgent` is composed as:
 
 ```typescript
-const StandardAgent = HasCommands(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))));
+const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))));
 ```
 
 ### Custom composition (only what you need)
@@ -253,70 +253,71 @@ agent.on(HookEvent.SHELL_CWD, (old, newCwd) => console.log(`cd ${old} -> ${newCw
 
 TypeScript lazy file providers are async (returning `Promise<string>`), allowing providers that fetch from APIs or databases. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
-## Slash Commands
+## Skills
 
-The `HasCommands` mixin enables user-facing slash commands (like `/help`, `/reset`) that can optionally be exposed to the LLM as tools.
+The `HasSkills` mixin enables mountable capability bundles that combine tools, instructions, middleware, hooks, and lifecycle management into a single unit.
 
-### Registering commands
-
-```typescript
-import { HasCommands, CommandDef } from "./has-commands.js";
-
-agent.registerSlashCommand({
-  name: "help",
-  description: "Show help information",
-  execute: (args) => "Available commands: /help, /status, /reset",
-  parameters: { type: "object", properties: {} },
-});
-
-// With llmVisible: false to hide from LLM
-agent.registerSlashCommand({
-  name: "debug",
-  description: "Toggle debug mode",
-  execute: (args) => "Debug mode toggled",
-  parameters: { type: "object", properties: {} },
-  llmVisible: false,
-});
-```
-
-Commands with `llmVisible !== false` (the default) are automatically registered as `slash_{name}` tools when `UsesTools` is also composed. Disable per-agent with `_initHasCommands({ llmCommandsEnabled: false })`.
-
-### Executing commands
+### Defining a skill
 
 ```typescript
-const result = agent.executeSlashCommand("help", {});
-console.log(result); // "Available commands: /help, /status, /reset"
+import { Skill, SkillContext } from "./has-skills.js";
+
+class WebBrowsingSkill implements Skill {
+  name = "web_browsing";
+  description = "Browse the web and extract content";
+  version = "1.0.0";
+  instructions = "You can browse the web using the fetch_page tool.";
+  dependencies = [];
+
+  async setup(ctx: SkillContext) {
+    ctx.session = createHttpClient();
+  }
+
+  async teardown(ctx: SkillContext) {
+    ctx.session.close();
+  }
+
+  tools() { return [fetchPageTool]; }
+  middleware() { return []; }
+  hooks() { return {}; }
+}
 ```
 
-### Intercepting slash commands from text
+### Mounting skills
 
 ```typescript
-const parsed = agent.interceptSlashCommand("/help some args");
-// { name: "help", args: { input: "some args" } }
-
-const parsed = agent.interceptSlashCommand("hello");
-// null
+agent.mount(new WebBrowsingSkill());
 ```
 
-### SlashCommandMiddleware
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
 
-Opt-in middleware that intercepts user messages starting with `/`:
+### Unmounting skills
 
 ```typescript
-import { SlashCommandMiddleware } from "./slash-command-middleware.js";
-
-agent.use(new SlashCommandMiddleware());
+agent.unmount("web_browsing");
 ```
 
-### Slash command hooks
+Unmounting runs `teardown()` and removes all tools, middleware, and hooks associated with the skill.
 
-When `HasHooks` is also composed, slash command operations emit lifecycle hooks:
+### SkillPromptMiddleware
+
+Middleware that auto-injects mounted skill instructions into the system prompt:
+
+```typescript
+import { SkillPromptMiddleware } from "./skill-prompt-middleware.js";
+
+agent.use(new SkillPromptMiddleware());
+```
+
+### Skill hooks
+
+When `HasHooks` is also composed, skill operations emit lifecycle hooks:
 
 ```typescript
 import { HookEvent } from "./has-hooks.js";
 
-agent.on(HookEvent.SLASH_COMMAND_REGISTER, (def) => console.log(`Registered: /${def.name}`));
-agent.on(HookEvent.SLASH_COMMAND_CALL, (name, args) => console.log(`Calling: /${name}`));
+agent.on(HookEvent.SKILL_MOUNT, (skill) => console.log(`Mounted: ${skill.name}`));
+agent.on(HookEvent.SKILL_SETUP, (skill) => console.log(`Setting up: ${skill.name}`));
 ```
 
-See [ADR 0023](../adr/0023-has-commands-mixin.md) for design details.
+See [ADR 0024](../adr/0024-has-skills-mixin.md) for design details.

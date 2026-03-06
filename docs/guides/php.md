@@ -46,7 +46,7 @@ class StandardAgent extends BaseAgent
     use UsesTools;
     use EmitsEvents;
     use HasShell;
-    use HasCommands;
+    use HasSkills;
 }
 ```
 
@@ -294,74 +294,78 @@ $agent->on(HookEvent::ShellCwd, function (string $old, string $new) {
 
 See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
-## Slash Commands
+## Skills
 
-The `HasCommands` trait enables user-facing slash commands (like `/help`, `/reset`) that can optionally be exposed to the LLM as tools.
+The `HasSkills` trait enables mountable capability bundles that combine tools, instructions, middleware, hooks, and lifecycle management into a single unit.
 
-### Registering commands
-
-```php
-use AgentHarness\CommandDef;
-
-$agent->registerSlashCommand(CommandDef::make(
-    name: 'help',
-    description: 'Show help information',
-    parameters: ['type' => 'object', 'properties' => new \stdClass()],
-    execute: fn(array $args) => 'Available commands: /help, /status, /reset',
-));
-
-// With llmVisible: false to hide from LLM
-$agent->registerSlashCommand(CommandDef::make(
-    name: 'debug',
-    description: 'Toggle debug mode',
-    parameters: ['type' => 'object', 'properties' => new \stdClass()],
-    execute: fn(array $args) => 'Debug mode toggled',
-    llmVisible: false,
-));
-```
-
-Commands with `llmVisible: true` (the default) are automatically registered as `slash_{name}` tools when `UsesTools` is also composed. Disable per-agent with `initHasCommands(llmCommandsEnabled: false)`.
-
-### Executing commands
+### Defining a skill
 
 ```php
-$result = $agent->executeSlashCommand('help', []);
-echo $result; // "Available commands: /help, /status, /reset"
+use AgentHarness\Skill;
+use AgentHarness\SkillContext;
+
+class WebBrowsingSkill extends Skill
+{
+    public string $name = 'web_browsing';
+    public string $description = 'Browse the web and extract content';
+    public string $version = '1.0.0';
+    public string $instructions = 'You can browse the web using the fetch_page tool.';
+
+    public function setup(SkillContext $ctx): void
+    {
+        $ctx->client = new \GuzzleHttp\Client();
+    }
+
+    public function teardown(SkillContext $ctx): void
+    {
+        // cleanup
+    }
+
+    public function tools(): array { return [$this->fetchPageTool()]; }
+    public function middleware(): array { return []; }
+    public function hooks(): array { return []; }
+}
 ```
 
-### Intercepting slash commands from text
+### Mounting skills
 
 ```php
-$parsed = $agent->interceptSlashCommand('/help some args');
-// ['help', ['input' => 'some args']]
-
-$parsed = $agent->interceptSlashCommand('hello');
-// null
+$agent->mount(new WebBrowsingSkill());
 ```
 
-### SlashCommandMiddleware
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
 
-Opt-in middleware that intercepts user messages starting with `/`:
+### Unmounting skills
 
 ```php
-use AgentHarness\SlashCommandMiddleware;
-
-$agent->use(new SlashCommandMiddleware());
+$agent->unmount('web_browsing');
 ```
 
-### Slash command hooks
+Unmounting runs `teardown()` and removes all tools, middleware, and hooks associated with the skill.
 
-When `HasHooks` is also composed, slash command operations emit lifecycle hooks:
+### SkillPromptMiddleware
+
+Middleware that auto-injects mounted skill instructions into the system prompt:
+
+```php
+use AgentHarness\SkillPromptMiddleware;
+
+$agent->use(new SkillPromptMiddleware());
+```
+
+### Skill hooks
+
+When `HasHooks` is also composed, skill operations emit lifecycle hooks:
 
 ```php
 use AgentHarness\HookEvent;
 
-$agent->on(HookEvent::SlashCommandRegister, function (CommandDef $def) {
-    echo "Registered: /{$def->name}\n";
+$agent->on(HookEvent::SkillMount, function (Skill $skill) {
+    echo "Mounted: {$skill->name}\n";
 });
-$agent->on(HookEvent::SlashCommandCall, function (string $name, array $args) {
-    echo "Calling: /{$name}\n";
+$agent->on(HookEvent::SkillSetup, function (Skill $skill) {
+    echo "Setting up: {$skill->name}\n";
 });
 ```
 
-See [ADR 0023](../adr/0023-has-commands-mixin.md) for design details.
+See [ADR 0024](../adr/0024-has-skills-mixin.md) for design details.

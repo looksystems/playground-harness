@@ -45,7 +45,7 @@ This gives you lifecycle hooks and tool support without middleware or event stre
 
 Twenty-two hook events are defined in `HookEvent(str, Enum)`:
 
-`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`, `slash_command_register`, `slash_command_unregister`, `slash_command_call`, `slash_command_result`.
+`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`, `skill_mount`, `skill_unmount`, `skill_setup`, `skill_teardown`.
 
 Register handlers with `agent.on()`:
 
@@ -237,73 +237,72 @@ agent.on(HookEvent.SHELL_CWD, lambda old, new: print(f"cd {old} -> {new}"))
 
 Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
-## Slash Commands
+## Skills
 
-The `HasCommands` mixin enables user-facing slash commands (like `/help`, `/reset`) that can optionally be exposed to the LLM as tools.
+The `HasSkills` mixin enables mountable capability bundles that combine tools, instructions, middleware, hooks, and lifecycle management into a single unit.
 
-### Registering commands
-
-Two registration methods are available: the `@command` decorator or the `CommandDef` dataclass.
+### Defining a skill
 
 ```python
-from src.python.has_commands import command, CommandDef
+from src.python.has_skills import Skill
 
-# Decorator approach
-@command(description="Show help information")
-def help(args: dict) -> str:
-    return "Available commands: /help, /status, /reset"
+class WebBrowsingSkill(Skill):
+    name = "web_browsing"
+    description = "Browse the web and extract content"
+    version = "1.0.0"
+    instructions = "You can browse the web using the fetch_page tool."
 
-agent.register_slash_command(help)
+    async def setup(self, ctx):
+        ctx.session = aiohttp.ClientSession()
 
-# CommandDef approach
-agent.register_slash_command(CommandDef(
-    name="status",
-    description="Show agent status",
-    handler=lambda args: "Status: running",
-    parameters={"type": "object", "properties": {}},
-))
+    async def teardown(self, ctx):
+        await ctx.session.close()
+
+    def tools(self):
+        return [fetch_page_tool]
+
+    def middleware(self):
+        return []
+
+    def hooks(self):
+        return {}
 ```
 
-Commands with `llm_visible=True` (the default) are automatically registered as `slash_{name}` tools when `UsesTools` is also composed. Disable per-command with `llm_visible=False` or per-agent with `__init_has_commands__(llm_commands_enabled=False)`.
-
-### Executing commands
+### Mounting skills
 
 ```python
-result = agent.execute_slash_command("help", {})
-print(result)  # "Available commands: /help, /status, /reset"
+agent.mount(WebBrowsingSkill())
 ```
 
-### Intercepting slash commands from text
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
+
+### Unmounting skills
 
 ```python
-parsed = agent.intercept_slash_command("/help some args")
-# ("help", {"input": "some args"})
-
-parsed = agent.intercept_slash_command("hello")
-# None
+agent.unmount("web_browsing")
 ```
 
-### SlashCommandMiddleware
+Unmounting runs `teardown()` and removes all tools, middleware, and hooks associated with the skill.
 
-Opt-in middleware that intercepts user messages starting with `/`:
+### SkillPromptMiddleware
+
+Middleware that auto-injects mounted skill instructions into the system prompt:
 
 ```python
-from src.python.slash_command_middleware import SlashCommandMiddleware
+from src.python.skill_prompt_middleware import SkillPromptMiddleware
 
-agent.use(SlashCommandMiddleware())
+agent.use(SkillPromptMiddleware())
 ```
 
-When a user sends `/help`, the middleware executes the command and replaces the message content with the result before it reaches the LLM.
+### Skill hooks
 
-### Slash command hooks
-
-When `HasHooks` is also composed, slash command operations emit lifecycle hooks:
+When `HasHooks` is also composed, skill operations emit lifecycle hooks:
 
 ```python
 from src.python.has_hooks import HookEvent
 
-agent.on(HookEvent.SLASH_COMMAND_REGISTER, lambda name: print(f"Registered: /{name}"))
-agent.on(HookEvent.SLASH_COMMAND_CALL, lambda name, args: print(f"Calling: /{name}"))
+agent.on(HookEvent.SKILL_MOUNT, lambda skill: print(f"Mounted: {skill.name}"))
+agent.on(HookEvent.SKILL_SETUP, lambda skill: print(f"Setting up: {skill.name}"))
 ```
 
-See [ADR 0023](../adr/0023-has-commands-mixin.md) for design details.
+See [ADR 0024](../adr/0024-has-skills-mixin.md) for design details.

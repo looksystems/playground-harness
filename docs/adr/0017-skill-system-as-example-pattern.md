@@ -1,10 +1,12 @@
-# 17. Skill System as Example Pattern
+# 17. Skill System as Example Pattern (Superseded)
 
 Date: 2026-03-05
 
 ## Status
 
-Accepted
+Superseded by [ADR 0024](0024-has-skills-mixin.md)
+
+> This decision was reversed -- the skill system was promoted to a core mixin (`HasSkills`) in ADR 0024.
 
 ## Context
 
@@ -35,17 +37,17 @@ Keep the skill system in `examples/` as a documented pattern, not a core mixin. 
 
 ### The Skill contract
 
-- `name`, `description`, `version` — metadata (name auto-derives from class)
-- `instructions` — injected into system prompt
-- `tools()` — returns tool definitions
-- `middleware()` — returns middleware instances
-- `hooks()` — returns event-to-callback mappings
-- `dependencies` — other skill classes, resolved transitively
-- `setup(ctx)` / `teardown(ctx)` — async resource lifecycle
+- `name`, `description`, `version` -- metadata (name auto-derives from class)
+- `instructions` -- injected into system prompt
+- `tools()` -- returns tool definitions
+- `middleware()` -- returns middleware instances
+- `hooks()` -- returns event-to-callback mappings
+- `dependencies` -- other skill classes, resolved transitively
+- `setup(ctx)` / `teardown(ctx)` -- async resource lifecycle
 
 ## Consequences
 
-- The core framework stays minimal — 6 mixins (hooks, middleware, tools, events, shell, commands) plus BaseAgent
+- The core framework stays minimal -- 6 mixins (hooks, middleware, tools, events, shell, commands) plus BaseAgent
 - Users who need the skill pattern can copy from `examples/skills.*` and adapt
 - Promoting specific capabilities (like HasShell) to core mixins is the preferred path for first-class features
 - If strong demand emerges for a generic skill system, it can be promoted to core later with real-world usage to guide the API

@@ -8,7 +8,7 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 |--------|--------|------------|-----|
 | **Trait/Mixin Mechanism** | Multiple inheritance mixins | Function-based mixins (`HasX<TBase>(Base)`) | Native `trait` keyword |
 | **Mixin Init Strategy** | Lazy init via `hasattr` + `__init_has_X__()` | Inline field initialization in anonymous class | PHP trait properties initialize on first use |
-| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasCommands): pass` | `const StandardAgent = HasCommands(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasCommands; }` |
+| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasSkills): pass` | `const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasSkills; }` |
 | **Async Model** | `async`/`await` throughout, `asyncio` | `async`/`await`, Promises | Synchronous (no async runtime) |
 | **LLM Client** | litellm (multi-provider) | OpenAI SDK | Guzzle HTTP (raw API calls) |
 | **YAML Parsing** | PyYAML (`yaml.safe_load`) | `yaml` npm package (`YAML.parse`) | Custom `parseSimpleYaml()` (zero dependencies) |
@@ -71,8 +71,8 @@ TypeScript's lazy file providers are async (returning `Promise<string>`) because
 
 The `HasShell` mixin follows the same language-specific patterns as other mixins: Python multiple inheritance, TypeScript function-based mixin, PHP native trait. In all three, it auto-registers the `exec` tool when `UsesTools` is also composed, and works independently for programmatic use when it isn't.
 
-### 7. Slash Commands
+### 7. Skills
 
-The `HasCommands` mixin is consistent across all three languages. Commands are registered as `CommandDef` instances, optionally auto-registered as `slash_{name}` tools (controlled per-command by `llm_visible` and per-agent by `llm_commands_enabled`), and emit four `slash_command_*` hook events when `HasHooks` is composed. Python additionally provides a `@command` decorator (mirroring `@tool`) for ergonomic registration with automatic parameter schema generation from type hints.
+The `HasSkills` mixin is consistent across all three languages. Skills are mounted via `mount(skill)` and unmounted via `unmount(name)`. Each skill bundles tools, instructions, middleware, hooks, and lifecycle management into a single mountable unit. Dependencies are resolved transitively via topological sort. Four `skill_*` hook events (mount, unmount, setup, teardown) are emitted when `HasHooks` is composed.
 
-The `SlashCommandMiddleware` in all three languages follows the same logic: intercept the last user message if it starts with `/`, parse the command name and arguments, execute, and replace the message content with the result.
+The `SkillPromptMiddleware` in all three languages auto-injects mounted skill instructions into the system prompt, ensuring the LLM is aware of all active skill capabilities.

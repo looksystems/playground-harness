@@ -1,3 +1,5 @@
+> **Superseded:** This plan was implemented but later replaced by the HasSkills mixin. See `docs/plans/2026-03-06-has-skills-mixin.md`.
+
 # HasCommands Mixin — Custom Slash Commands
 
 ## Context
