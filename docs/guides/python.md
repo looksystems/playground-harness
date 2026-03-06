@@ -284,7 +284,7 @@ agent.on(HookEvent.SHELL_CWD, lambda old, new: print(f"cd {old} -> {new}"))
 The shell backend is swappable via `FilesystemDriver` and `ShellDriver` contracts. The built-in driver wraps `VirtualFS` and `Shell` and is used by default — no changes needed for existing code.
 
 ```python
-from src.python.shell_driver import ShellDriverFactory
+from src.python.drivers import ShellDriverFactory
 
 # Set a global default driver
 ShellDriverFactory.default = "bashkit"
@@ -293,7 +293,7 @@ ShellDriverFactory.default = "bashkit"
 agent = await StandardAgent.build("gpt-4").driver("bashkit").create()
 
 # Register a custom driver
-from src.python.shell_driver import ShellDriver
+from src.python.drivers import ShellDriver
 
 ShellDriverFactory.register("my-driver", lambda **kw: MyDriver(**kw))
 ```

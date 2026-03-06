@@ -286,7 +286,7 @@ agent.on(HookEvent.SHELL_CWD, (old, newCwd) => console.log(`cd ${old} -> ${newCw
 The shell backend is swappable via `FilesystemDriver` and `ShellDriver` contracts. The built-in driver wraps `VirtualFS` and `Shell` and is used by default — no changes needed for existing code.
 
 ```typescript
-import { ShellDriverFactory } from "./shell-driver.js";
+import { ShellDriverFactory } from "./drivers.js";
 
 // Set a global default driver
 ShellDriverFactory.default = "bashkit";

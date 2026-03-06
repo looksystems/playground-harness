@@ -175,6 +175,8 @@ class AgentBuilder
 
         if ($this->shellOpts !== null) {
             $agent->initHasShell(...$this->shellOpts, driver: $this->driver);
+        } elseif ($this->driver !== null) {
+            $agent->initHasShell(driver: $this->driver);
         }
 
         foreach ($this->commands as [$name, $handler]) {
