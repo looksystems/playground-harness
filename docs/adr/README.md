@@ -25,7 +25,6 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0020](0020-shell-expansion-safety-limits.md) | Shell Expansion Safety Limits |
 | [0021](0021-custom-command-registration.md) | Custom Command Registration for Virtual Shell |
 | [0022](0022-shell-and-registration-hooks.md) | Shell, Registration, and CWD Hooks |
-| [0023](0023-has-commands-mixin.md) | ~~HasCommands Mixin~~ (Superseded by 0024) |
 | [0024](0024-has-skills-mixin.md) | HasSkills Mixin |
 
 ### Events and Streaming
