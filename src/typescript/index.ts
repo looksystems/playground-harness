@@ -12,3 +12,5 @@ export { HasSkills, Skill, SkillContext, SkillManager, SkillPromptMiddleware } f
 export { VirtualFS } from "./virtual-fs.js";
 export { Shell, ShellRegistry, ExecResult } from "./shell.js";
 export { tryEmit } from "./utils.js";
+export type { FilesystemDriver, ShellDriver, ShellDriverOptions, ShellDriverFactoryFn } from "./drivers.js";
+export { BuiltinFilesystemDriver, BuiltinShellDriver, ShellDriverFactory } from "./drivers.js";

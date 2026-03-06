@@ -4,6 +4,7 @@ import { Shell, ShellRegistry } from "../../src/typescript/shell.js";
 import { VirtualFS } from "../../src/typescript/virtual-fs.js";
 import { UsesTools, ToolDef } from "../../src/typescript/uses-tools.js";
 import { HasHooks, HookEvent } from "../../src/typescript/has-hooks.js";
+import { BuiltinShellDriver } from "../../src/typescript/drivers.js";
 
 // Simple base class for testing
 class Base {
@@ -27,7 +28,7 @@ describe("HasShell", () => {
     expect(agent._shell).toBeUndefined();
     // Accessing shell property triggers init
     const sh = agent.shell;
-    expect(sh).toBeInstanceOf(Shell);
+    expect(sh).toBeInstanceOf(BuiltinShellDriver);
     expect(agent._shell).toBeDefined();
   });
 

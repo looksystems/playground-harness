@@ -2,15 +2,17 @@
  * HasShell mixin — adds virtual shell capabilities to an agent.
  */
 
-import { VirtualFS } from "./virtual-fs.js";
 import { Shell, ShellRegistry, ExecResult, CmdHandler } from "./shell.js";
 import { HookEvent } from "./has-hooks.js";
 import { tryEmit } from "./utils.js";
+import type { FilesystemDriver, ShellDriver } from "./drivers.js";
+import { BuiltinShellDriver, ShellDriverFactory } from "./drivers.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
 export interface HasShellOptions {
   shell?: string | Shell;
+  driver?: string;
   cwd?: string;
   env?: Record<string, string>;
   allowedCommands?: Set<string>;
@@ -19,17 +21,16 @@ export interface HasShellOptions {
 
 export function HasShell<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
-    _shell?: Shell;
+    _shell?: ShellDriver;
 
     initHasShell(opts?: HasShellOptions): void {
       const options = opts ?? {};
       if (typeof options.shell === "string") {
-        this._shell = ShellRegistry.get(options.shell);
+        this._shell = BuiltinShellDriver.fromShell(ShellRegistry.get(options.shell));
       } else if (options.shell instanceof Shell) {
-        this._shell = options.shell;
+        this._shell = BuiltinShellDriver.fromShell(options.shell);
       } else {
-        this._shell = new Shell({
-          fs: new VirtualFS(),
+        this._shell = ShellDriverFactory.create(options.driver, {
           cwd: options.cwd ?? "/home/user",
           env: options.env ?? {},
           allowedCommands: options.allowedCommands,
@@ -89,12 +90,12 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
       });
     }
 
-    get shell(): Shell {
+    get shell(): ShellDriver {
       this.ensureHasShell();
       return this._shell!;
     }
 
-    get fs(): VirtualFS {
+    get fs(): FilesystemDriver {
       return this.shell.fs;
     }
 

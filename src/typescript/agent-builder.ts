@@ -18,6 +18,7 @@ export class AgentBuilder {
   private _events: StructuredEvent[] = [];
   private _skills: Array<[Skill, Record<string, any>?]> = [];
   private _shellOpts?: HasShellOptions;
+  private _driver?: string;
   private _commands: Array<[string, CmdHandler]> = [];
 
   constructor(model: string) {
@@ -91,6 +92,11 @@ export class AgentBuilder {
     return this;
   }
 
+  driver(name: string): this {
+    this._driver = name;
+    return this;
+  }
+
   command(name: string, handler: CmdHandler): this {
     this._commands.push([name, handler]);
     return this;
@@ -123,7 +129,9 @@ export class AgentBuilder {
     }
 
     if (this._shellOpts !== undefined) {
-      agent.initHasShell(this._shellOpts);
+      agent.initHasShell({ ...this._shellOpts, driver: this._driver });
+    } else if (this._driver) {
+      agent.initHasShell({ driver: this._driver });
     }
 
     for (const [name, handler] of this._commands) {
