@@ -83,3 +83,132 @@ class BuiltinFilesystemDriver(FilesystemDriver):
 
     def clone(self) -> BuiltinFilesystemDriver:
         return BuiltinFilesystemDriver(self._vfs.clone())
+
+
+from src.python.shell import Shell, ExecResult
+
+
+class ShellDriver(ABC):
+    """Contract for shell interpreter implementations."""
+
+    @property
+    @abstractmethod
+    def fs(self) -> FilesystemDriver: ...
+
+    @property
+    @abstractmethod
+    def cwd(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def env(self) -> dict[str, str]: ...
+
+    @abstractmethod
+    def exec(self, command: str) -> ExecResult: ...
+
+    @abstractmethod
+    def register_command(self, name: str, handler: Callable) -> None: ...
+
+    @abstractmethod
+    def unregister_command(self, name: str) -> None: ...
+
+    @abstractmethod
+    def clone(self) -> ShellDriver: ...
+
+    @property
+    @abstractmethod
+    def on_not_found(self) -> Callable | None: ...
+
+    @on_not_found.setter
+    @abstractmethod
+    def on_not_found(self, callback: Callable | None) -> None: ...
+
+
+class BuiltinShellDriver(ShellDriver):
+    """Wraps the existing Shell as a ShellDriver."""
+
+    def __init__(
+        self,
+        cwd: str = "/",
+        env: dict[str, str] | None = None,
+        allowed_commands: set[str] | None = None,
+        max_output: int = 16_000,
+        max_iterations: int = 10_000,
+    ):
+        self._shell = Shell(
+            cwd=cwd,
+            env=env or {},
+            allowed_commands=allowed_commands,
+            max_output=max_output,
+            max_iterations=max_iterations,
+        )
+        self._fs_driver = BuiltinFilesystemDriver(self._shell.fs)
+
+    @property
+    def fs(self) -> FilesystemDriver:
+        return self._fs_driver
+
+    @property
+    def cwd(self) -> str:
+        return self._shell.cwd
+
+    @property
+    def env(self) -> dict[str, str]:
+        return self._shell.env
+
+    def exec(self, command: str) -> ExecResult:
+        return self._shell.exec(command)
+
+    def register_command(self, name: str, handler: Callable) -> None:
+        self._shell.register_command(name, handler)
+
+    def unregister_command(self, name: str) -> None:
+        self._shell.unregister_command(name)
+
+    def clone(self) -> BuiltinShellDriver:
+        cloned_shell = self._shell.clone()
+        driver = BuiltinShellDriver.__new__(BuiltinShellDriver)
+        driver._shell = cloned_shell
+        driver._fs_driver = BuiltinFilesystemDriver(cloned_shell.fs)
+        return driver
+
+    @property
+    def on_not_found(self) -> Callable | None:
+        return self._shell.on_not_found
+
+    @on_not_found.setter
+    def on_not_found(self, callback: Callable | None) -> None:
+        self._shell.on_not_found = callback
+
+    @staticmethod
+    def from_shell(shell: Shell) -> BuiltinShellDriver:
+        """Create from an existing Shell instance."""
+        driver = BuiltinShellDriver.__new__(BuiltinShellDriver)
+        driver._shell = shell
+        driver._fs_driver = BuiltinFilesystemDriver(shell.fs)
+        return driver
+
+
+class ShellDriverFactory:
+    """Resolves driver names to ShellDriver instances."""
+
+    default: str = "builtin"
+    _registry: dict[str, Callable[..., ShellDriver]] = {}
+
+    @classmethod
+    def register(cls, name: str, factory: Callable[..., ShellDriver]) -> None:
+        cls._registry[name] = factory
+
+    @classmethod
+    def create(cls, name: str | None = None, **kwargs: Any) -> ShellDriver:
+        name = name or cls.default
+        if name == "builtin":
+            return BuiltinShellDriver(**kwargs)
+        if name not in cls._registry:
+            raise KeyError(f"Shell driver '{name}' not registered")
+        return cls._registry[name](**kwargs)
+
+    @classmethod
+    def reset(cls) -> None:
+        cls._registry.clear()
+        cls.default = "builtin"
