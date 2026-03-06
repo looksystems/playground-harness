@@ -10,6 +10,17 @@ The **virtual shell** replaces per-query tools with an in-memory filesystem and 
 
 The **inline event system** uses a convention-based YAML format where the last field in an event block is automatically streamable — no special syntax or schema annotations needed. Events are buffered by default; streaming is opt-in per field, and the parser handles framing, async iteration, and backpressure transparently.
 
+Along with typical agentic features:
+
+ * tools
+ * skills
+ * hooks
+ * middleware
+
+For now, I've excluded mcp support, as this could/should be implemented with a combinatio of a custom skill and cli command.
+
+The ultimate aim is for this work to be integrated into an event driven/sourced workflow package, which would then allow orchestration.
+
 ## Documentation
 
 - [Overview](docs/overview.md) — Key capabilities and architecture diagram
@@ -26,3 +37,15 @@ The **inline event system** uses a convention-based YAML format where the last f
 ### Architecture Decision Records
 
 Design decisions are documented in [docs/adr/](docs/adr/README.md).
+
+## TODOs
+
+Streamed events currently assumes last field is streamed - this needs to be reviewed and api adjusted accordingly.
+
+Virtual fs/shell could be extracted into separate packages - in particular, the virtual fs/shell could be a high performance core, say in rust with extensibility in the client languages.
+
+Need to think further about the message bus and whether there should be any convensions re. emtting events vs commands (and tools). Message bus will be a separate package.
+
+Need to add support for LLM gateways and rate limited, retries, observability, etc cf middleware.
+
+Need to add support for [open responses](https://www.openresponses.org) ie. create common classes or use standard libraries.
