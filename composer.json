@@ -2,12 +2,12 @@
   "name": "noodlehq/agent-harness-php",
   "autoload": {
     "psr-4": {
-      "AgentHarness\\": "."
+      "AgentHarness\\": "src/php"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "AgentHarness\\Tests\\": "../../tests/php"
+      "AgentHarness\\Tests\\": "tests/php"
     }
   },
   "require": {

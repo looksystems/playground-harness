@@ -5,9 +5,9 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "./dist",
+    "outDir": "dist",
     "declaration": true,
     "sourceMap": true
   },
-  "include": ["*.ts"]
+  "include": ["src/typescript/**/*.ts"]
 }

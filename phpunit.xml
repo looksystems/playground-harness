@@ -2,7 +2,7 @@
 <phpunit bootstrap="vendor/autoload.php" colors="true">
   <testsuites>
     <testsuite name="Agent Harness">
-      <directory>../../tests/php</directory>
+      <directory>tests/php</directory>
     </testsuite>
   </testsuites>
 </phpunit>
