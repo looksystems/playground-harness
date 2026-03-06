@@ -15,6 +15,9 @@ class SkillManager
     /** @var array<string, list<string>> */
     private array $skillTools = [];
 
+    /** @var array<string, list<string>> */
+    private array $skillCommands = [];
+
     private ?SkillPromptMiddleware $promptMw = null;
 
     public function __construct(
@@ -69,6 +72,16 @@ class SkillManager
             }
         }
 
+        // Register commands
+        $cmdNames = [];
+        if (method_exists($this->agent, 'registerCommand')) {
+            foreach ($skill->commands() as $cmdName => $handler) {
+                $this->agent->registerCommand($cmdName, $handler);
+                $cmdNames[] = $cmdName;
+            }
+        }
+        $this->skillCommands[$skill->name] = $cmdNames;
+
         $this->skills[$skill->name] = $skill;
         $this->mountOrder[] = $skill->name;
 
@@ -96,6 +109,14 @@ class SkillManager
         }
         unset($this->skillTools[$name]);
 
+        // Remove commands
+        if (method_exists($this->agent, 'unregisterCommand') && isset($this->skillCommands[$name])) {
+            foreach ($this->skillCommands[$name] as $cmdName) {
+                $this->agent->unregisterCommand($cmdName);
+            }
+        }
+        unset($this->skillCommands[$name]);
+
         unset($this->skills[$name]);
         $this->mountOrder = array_values(array_filter(
             $this->mountOrder,
@@ -121,6 +142,7 @@ class SkillManager
         $this->skills = [];
         $this->mountOrder = [];
         $this->skillTools = [];
+        $this->skillCommands = [];
     }
 
     /**

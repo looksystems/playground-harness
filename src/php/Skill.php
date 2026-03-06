@@ -68,4 +68,12 @@ abstract class Skill
     {
         return [];
     }
+
+    /**
+     * @return array<string, callable>
+     */
+    public function commands(): array
+    {
+        return [];
+    }
 }

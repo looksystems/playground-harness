@@ -103,6 +103,10 @@ class Skill(ABC):
         """Return hook callbacks this skill provides."""
         return {}
 
+    def commands(self) -> dict[str, Callable]:
+        """Return shell commands this skill provides. {name: handler}"""
+        return {}
+
 
 # ---------------------------------------------------------------------------
 # SkillPromptMiddleware
@@ -165,6 +169,7 @@ class SkillManager:
         self._skill_tools: dict[str, list[str]] = {}
         self._skill_middleware: dict[str, list[BaseMiddleware]] = {}
         self._skill_hooks: dict[str, list[tuple[HookEvent, Callable]]] = {}
+        self._skill_commands: dict[str, list[str]] = {}
 
     # -- public API --------------------------------------------------------
 
@@ -212,6 +217,11 @@ class SkillManager:
                 except (ValueError, KeyError):
                     pass
 
+        # Remove commands
+        for cmd_name in self._skill_commands.pop(skill_name, []):
+            if hasattr(self._agent, "unregister_command"):
+                self._agent.unregister_command(cmd_name)
+
         self._skills.pop(skill_name, None)
         try:
             self._mounted_order.remove(skill_name)
@@ -237,6 +247,7 @@ class SkillManager:
         self._skill_tools.clear()
         self._skill_middleware.clear()
         self._skill_hooks.clear()
+        self._skill_commands.clear()
         if self._prompt_mw is not None and hasattr(self._agent, "_middleware"):
             try:
                 self._agent._middleware.remove(self._prompt_mw)
@@ -279,6 +290,14 @@ class SkillManager:
                     self._agent.on(event, cb)
                 hook_pairs.append((event, cb))
         self._skill_hooks[skill.name] = hook_pairs
+
+        # Register commands
+        cmd_names: list[str] = []
+        for cmd_name, handler in skill.commands().items():
+            if hasattr(self._agent, "register_command"):
+                self._agent.register_command(cmd_name, handler)
+                cmd_names.append(cmd_name)
+        self._skill_commands[skill.name] = cmd_names
 
         self._skills[skill.name] = skill
         self._mounted_order.append(skill.name)

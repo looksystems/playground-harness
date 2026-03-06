@@ -9,6 +9,8 @@ from src.python.has_skills import (
 )
 from src.python.has_hooks import HasHooks, HookEvent
 from src.python.has_middleware import BaseMiddleware, HasMiddleware
+from src.python.has_shell import HasShell
+from src.python.shell import ExecResult
 from src.python.uses_tools import UsesTools, ToolDef
 
 
@@ -179,6 +181,10 @@ class SkillsWithTools(UsesTools, HasSkills):
 
 
 class FullSkillAgent(HasHooks, HasMiddleware, UsesTools, HasSkills):
+    pass
+
+
+class SkillsWithShell(HasShell, HasSkills):
     pass
 
 
@@ -651,3 +657,54 @@ class TestSkillDependencies:
         order = mgr._mounted_order
         assert order.index("skill_c") < order.index("skill_b")
         assert order.index("skill_b") < order.index("skill_a")
+
+
+# ---------------------------------------------------------------------------
+# 9. TestSkillCommands
+# ---------------------------------------------------------------------------
+
+class CommandProvidingSkill(Skill):
+    """Skill that contributes shell commands."""
+
+    @property
+    def description(self):
+        return "Provides commands"
+
+    def commands(self):
+        return {
+            "greet": lambda args, stdin="": ExecResult(stdout="hello"),
+            "farewell": lambda args, stdin="": ExecResult(stdout="goodbye"),
+        }
+
+
+class TestSkillCommands:
+    @pytest.mark.asyncio
+    async def test_commands_registered_on_mount(self):
+        agent = SkillsWithShell()
+        sk = CommandProvidingSkill()
+        await agent.mount(sk)
+        assert "greet" in agent.shell._custom_commands
+        assert "farewell" in agent.shell._custom_commands
+
+    @pytest.mark.asyncio
+    async def test_commands_removed_on_unmount(self):
+        agent = SkillsWithShell()
+        sk = CommandProvidingSkill()
+        await agent.mount(sk)
+        assert "greet" in agent.shell._custom_commands
+        await agent.unmount("command_providing")
+        assert "greet" not in agent.shell._custom_commands
+        assert "farewell" not in agent.shell._custom_commands
+
+    @pytest.mark.asyncio
+    async def test_commands_callable(self):
+        agent = SkillsWithShell()
+        sk = CommandProvidingSkill()
+        await agent.mount(sk)
+        result = agent.shell.exec("greet")
+        assert result.stdout == "hello"
+
+    @pytest.mark.asyncio
+    async def test_default_commands_empty(self):
+        sk = WebBrowsingSkill()
+        assert sk.commands() == {}

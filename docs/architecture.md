@@ -135,7 +135,7 @@ stateDiagram-v2
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
 | **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell. Emits `shell_call`, `shell_result`, `shell_not_found`, and `shell_cwd` hooks when `HasHooks` is also composed |
 | **HasSkills** | Skill mixin: mounts/unmounts capability bundles (`Skill`) that combine tools, instructions, middleware, hooks, and lifecycle management. Resolves skill dependencies transitively. Emits `skill_mount`, `skill_unmount`, `skill_setup`, and `skill_teardown` hooks |
-| **Skill** | Base class/interface: defines the skill contract -- name, description, version, instructions, dependencies, context, setup(), teardown(), tools(), middleware(), hooks() |
+| **Skill** | Base class/interface: defines the skill contract -- name, description, version, instructions, dependencies, context, setup(), teardown(), tools(), middleware(), hooks(), commands() |
 | **SkillPromptMiddleware** | Middleware: auto-injects mounted skill instructions into the system prompt |
 
 ---

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AgentHarness\Tests;
 
-use AgentHarness\{HasSkills, HasHooks, UsesTools, HasMiddleware, HookEvent, Skill, SkillContext, SkillManager, SkillPromptMiddleware, ToolDef};
+use AgentHarness\{HasSkills, HasHooks, HasShell, UsesTools, HasMiddleware, ExecResult, HookEvent, Skill, SkillContext, SkillManager, SkillPromptMiddleware, ToolDef};
 use PHPUnit\Framework\TestCase;
 
 // ── Test helper classes ───────────────────────────────────────────
@@ -26,6 +26,12 @@ class FullSkillAgent
     use UsesTools;
     use HasHooks;
     use HasMiddleware;
+}
+
+class ShellSkillAgent
+{
+    use HasSkills;
+    use HasShell;
 }
 
 // ── Test skill classes ────────────────────────────────────────────
@@ -160,6 +166,19 @@ class TestSimpleDepSkill extends Skill
 {
     public string $description = 'Depends on base';
     public array $dependencies = [TestBaseDepSkill::class];
+}
+
+class TestCommandProvidingSkill extends Skill
+{
+    public string $description = 'Provides commands';
+
+    public function commands(): array
+    {
+        return [
+            'greet' => fn(array $args, string $stdin = '') => new ExecResult(stdout: 'hello'),
+            'farewell' => fn(array $args, string $stdin = '') => new ExecResult(stdout: 'goodbye'),
+        ];
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -496,5 +515,35 @@ class HasSkillsTest extends TestCase
         $this->assertArrayHasKey('test_mid_dep', $skills);
         $this->assertArrayHasKey('test_top_dep', $skills);
         $this->assertCount(3, $skills);
+    }
+
+    // ── 9. Commands from skill ───────────────────────────────────
+
+    public function testCommandsRegisteredOnMount(): void
+    {
+        $agent = new ShellSkillAgent();
+        $skill = new TestCommandProvidingSkill();
+        $agent->mount($skill);
+        $result = $agent->execCommand('greet');
+        $this->assertSame('hello', $result->stdout);
+    }
+
+    public function testCommandsRemovedOnUnmount(): void
+    {
+        $agent = new ShellSkillAgent();
+        $skill = new TestCommandProvidingSkill();
+        $agent->mount($skill);
+        $result = $agent->execCommand('greet');
+        $this->assertSame('hello', $result->stdout);
+
+        $agent->unmount('test_command_providing');
+        $result = $agent->execCommand('greet');
+        $this->assertNotSame(0, $result->exitCode);
+    }
+
+    public function testDefaultCommandsEmpty(): void
+    {
+        $skill = new TestNoInstructionsSkill();
+        $this->assertSame([], $skill->commands());
     }
 }

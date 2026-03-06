@@ -35,6 +35,7 @@ export abstract class Skill {
   tools(): ToolDef[] { return []; }
   middleware(): Middleware[] { return []; }
   hooks(): Partial<Record<HookEvent, Array<(...args: any[]) => any>>> { return {}; }
+  commands(): Record<string, (...args: any[]) => any> { return {}; }
 }
 
 export class SkillPromptMiddleware implements Middleware {
@@ -79,6 +80,7 @@ export class SkillManager {
   private promptMw: SkillPromptMiddleware | null = null;
   private agent: any;
   private skillTools: Map<string, string[]> = new Map();
+  private skillCommands: Map<string, string[]> = new Map();
 
   constructor(agent: any) {
     this.agent = agent;
@@ -135,6 +137,16 @@ export class SkillManager {
       }
     }
 
+    const cmdNames: string[] = [];
+    const cmds = skill.commands();
+    for (const [cmdName, handler] of Object.entries(cmds)) {
+      if (typeof this.agent.registerCommand === "function") {
+        this.agent.registerCommand(cmdName, handler);
+        cmdNames.push(cmdName);
+      }
+    }
+    this.skillCommands.set(skill.name, cmdNames);
+
     this.skills.set(skill.name, skill);
     this.mountOrder.push(skill.name);
     this.rebuildPromptMiddleware();
@@ -156,6 +168,14 @@ export class SkillManager {
     }
     this.skillTools.delete(name);
 
+    const cmdNames = this.skillCommands.get(name) ?? [];
+    for (const cmdName of cmdNames) {
+      if (typeof this.agent.unregisterCommand === "function") {
+        this.agent.unregisterCommand(cmdName);
+      }
+    }
+    this.skillCommands.delete(name);
+
     skill.context = null;
     this.skills.delete(name);
     this.mountOrder = this.mountOrder.filter((n) => n !== name);
@@ -174,6 +194,7 @@ export class SkillManager {
     this.skills.clear();
     this.mountOrder = [];
     this.skillTools.clear();
+    this.skillCommands.clear();
     this.rebuildPromptMiddleware();
   }
 

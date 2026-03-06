@@ -9,6 +9,7 @@ import {
 import { UsesTools } from "../../src/typescript/uses-tools.js";
 import { HasHooks, HookEvent } from "../../src/typescript/has-hooks.js";
 import { HasMiddleware, Middleware } from "../../src/typescript/has-middleware.js";
+import { HasShell } from "../../src/typescript/has-shell.js";
 import type { ToolDef } from "../../src/typescript/uses-tools.js";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ const SkillsAgent = HasSkills(Base);
 const SkillsToolsAgent = HasSkills(UsesTools(Base));
 const HookSkillsAgent = HasSkills(HasHooks(UsesTools(Base)));
 const FullSkillAgent = HasSkills(HasHooks(UsesTools(HasMiddleware(Base))));
+const ShellSkillAgent = HasSkills(HasShell(Base));
 
 // ---------------------------------------------------------------------------
 // Test skills
@@ -659,6 +661,60 @@ describe("HasSkills", () => {
       const agent = new SkillsAgent();
       // Should not throw
       await agent.shutdown();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 9. Commands from skill
+  // -----------------------------------------------------------------------
+  describe("Commands from skill", () => {
+    class CommandSkill extends Skill {
+      description = "Provides commands";
+
+      commands(): Record<string, (...args: any[]) => any> {
+        return {
+          greet: (_args: string[], _stdin: string) => ({
+            stdout: "hello\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+          farewell: (_args: string[], _stdin: string) => ({
+            stdout: "goodbye\n",
+            stderr: "",
+            exitCode: 0,
+          }),
+        };
+      }
+    }
+
+    it("commands registered on mount", async () => {
+      const agent = new ShellSkillAgent();
+      agent._initHasShell();
+      await agent.mount(new CommandSkill());
+      const result = agent.exec("greet");
+      expect(result.stdout).toBe("hello\n");
+    });
+
+    it("commands removed on unmount", async () => {
+      const agent = new ShellSkillAgent();
+      agent._initHasShell();
+      await agent.mount(new CommandSkill());
+      expect(agent.exec("greet").stdout).toBe("hello\n");
+      await agent.unmount("command");
+      expect(agent.exec("greet").exitCode).not.toBe(0);
+    });
+
+    it("multiple commands from one skill", async () => {
+      const agent = new ShellSkillAgent();
+      agent._initHasShell();
+      await agent.mount(new CommandSkill());
+      expect(agent.exec("greet").stdout).toBe("hello\n");
+      expect(agent.exec("farewell").stdout).toBe("goodbye\n");
+    });
+
+    it("default commands() returns empty object", () => {
+      const skill = new EmptySkill();
+      expect(skill.commands()).toEqual({});
     });
   });
 });

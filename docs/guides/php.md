@@ -324,6 +324,7 @@ class WebBrowsingSkill extends Skill
     public function tools(): array { return [$this->fetchPageTool()]; }
     public function middleware(): array { return []; }
     public function hooks(): array { return []; }
+    public function commands(): array { return []; }
 }
 ```
 
@@ -333,7 +334,7 @@ class WebBrowsingSkill extends Skill
 $agent->mount(new WebBrowsingSkill());
 ```
 
-Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, hooks, and commands.
 
 ### Unmounting skills
 

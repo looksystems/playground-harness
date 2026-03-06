@@ -31,6 +31,7 @@ Promote the full Skill contract to a core mixin (`HasSkills`), replacing `HasCom
 | `tools()` | method | Returns tool definitions |
 | `middleware()` | method | Returns middleware instances |
 | `hooks()` | method | Returns event-to-callback mappings |
+| `commands()` | method | Returns shell commands `{name: handler}` |
 
 ### HasSkills Mixin API
 

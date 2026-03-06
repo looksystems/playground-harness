@@ -280,6 +280,7 @@ class WebBrowsingSkill implements Skill {
   tools() { return [fetchPageTool]; }
   middleware() { return []; }
   hooks() { return {}; }
+  commands() { return {}; }
 }
 ```
 
@@ -289,7 +290,7 @@ class WebBrowsingSkill implements Skill {
 agent.mount(new WebBrowsingSkill());
 ```
 
-Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, hooks, and commands.
 
 ### Unmounting skills
 

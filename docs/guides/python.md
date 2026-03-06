@@ -266,6 +266,9 @@ class WebBrowsingSkill(Skill):
 
     def hooks(self):
         return {}
+
+    def commands(self):
+        return {}
 ```
 
 ### Mounting skills
@@ -274,7 +277,7 @@ class WebBrowsingSkill(Skill):
 agent.mount(WebBrowsingSkill())
 ```
 
-Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, and hooks.
+Mounting a skill resolves dependencies transitively, runs `setup()`, and registers all tools, middleware, hooks, and commands.
 
 ### Unmounting skills
 
@@ -282,7 +285,7 @@ Mounting a skill resolves dependencies transitively, runs `setup()`, and registe
 agent.unmount("web_browsing")
 ```
 
-Unmounting runs `teardown()` and removes all tools, middleware, and hooks associated with the skill.
+Unmounting runs `teardown()` and removes all tools, middleware, hooks, and commands associated with the skill.
 
 ### SkillPromptMiddleware
 
