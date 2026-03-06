@@ -7,4 +7,5 @@ node_modules/
 dist/
 vendor/
 .phpunit.result.cache
+uv.lock
 .worktrees/
