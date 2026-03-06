@@ -20,7 +20,7 @@ Along with typical agentic features:
 
 For now, mcp support has been deferred, as integrations would be better implemented with a combination of a custom skill and cli command.
 
-The ultimate aim is for this work to be integrated into an event driven/sourced workflow package, which would then allow orchestration.
+The ultimate aim is for this work to be integrated into an event driven/sourced workflow package, which would then allow durable, complex multi-agent and multi-step orchestration.
 
 ## Documentation
 
