@@ -46,6 +46,6 @@ Virtual fs/shell could be extracted into separate packages - in particular, the 
 
 Need to think further about the message bus and whether there should be any convensions re. emtting events vs commands (and tools). Message bus will be a separate package.
 
-Need to add support for LLM gateways and rate limited, retries, observability, etc cf middleware.
+Need to add support for LLM gateways including rate limits, retries, observability, etc cf middleware.
 
 Need to add support for [open responses](https://www.openresponses.org) ie. create common classes or use standard libraries.
