@@ -620,6 +620,7 @@ class Shell:
         self._iteration_counter = 0
         self._cmd_sub_depth = 0
         self._expansion_count = 0
+        self.on_not_found: Callable | None = None
 
         all_builtins: list[tuple[str, Callable]] = [
             ("cat", self._cmd_cat),
@@ -767,6 +768,8 @@ class Shell:
         handler = self._builtins.get(cmd_name)
         if handler is None:
             self.env["?"] = "127"
+            if self.on_not_found is not None:
+                self.on_not_found(cmd_name)
             return ExecResult(stderr=f"{cmd_name}: command not found\n", exit_code=127)
 
         result = handler(args, stdin)

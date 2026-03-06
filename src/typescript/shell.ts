@@ -661,6 +661,7 @@ export class Shell {
   private _iterationCounter: number;
   private _cmdSubDepth: number;
   private _expansionCount: number;
+  onNotFound?: (cmdName: string) => void;
 
   constructor(opts: ShellOptions = {}) {
     this.fs = opts.fs ?? new VirtualFS();
@@ -828,6 +829,7 @@ export class Shell {
     const handler = this._builtins.get(cmdName);
     if (!handler) {
       this.env["?"] = "127";
+      this.onNotFound?.(cmdName);
       return makeResult("", `${cmdName}: command not found\n`, 127);
     }
 

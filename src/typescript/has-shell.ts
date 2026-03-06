@@ -4,6 +4,7 @@
 
 import { VirtualFS } from "./virtual-fs.js";
 import { Shell, ShellRegistry, ExecResult, CmdHandler } from "./shell.js";
+import { HookEvent } from "./has-hooks.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -31,6 +32,14 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
           env: options.env ?? {},
           allowedCommands: options.allowedCommands,
         });
+      }
+
+      // Wire onNotFound hook if HasHooks is composed
+      if (typeof (this as any)._emit === "function") {
+        const self = this as any;
+        this._shell!.onNotFound = (cmdName: string) => {
+          void self._emit(HookEvent.SHELL_NOT_FOUND, cmdName);
+        };
       }
 
       // Auto-register exec tool if UsesTools is composed
@@ -88,15 +97,32 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
     }
 
     exec(command: string): ExecResult {
-      return this.shell.exec(command);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.SHELL_CALL, command);
+      }
+      const oldCwd = this.shell.cwd;
+      const result = this.shell.exec(command);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.SHELL_RESULT, command, result);
+        if (this.shell.cwd !== oldCwd) {
+          void (this as any)._emit(HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
+        }
+      }
+      return result;
     }
 
     registerCommand(name: string, handler: CmdHandler): void {
       this.shell.registerCommand(name, handler);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.COMMAND_REGISTER, name);
+      }
     }
 
     unregisterCommand(name: string): void {
       this.shell.unregisterCommand(name);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.COMMAND_UNREGISTER, name);
+      }
     }
   };
 }

@@ -12,6 +12,9 @@ trait UsesTools
     public function registerTool(ToolDef $tool): void
     {
         $this->tools[$tool->name] = $tool;
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::ToolRegister, $tool);
+        }
     }
 
     /**

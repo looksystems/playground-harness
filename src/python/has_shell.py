@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable
 
+from src.python.has_hooks import HookEvent
 from src.python.virtual_fs import VirtualFS
 from src.python.shell import Shell, ExecResult, ShellRegistry
 
@@ -29,9 +31,23 @@ class HasShell:
                 allowed_commands=allowed_commands,
             )
 
+        if hasattr(self, "_emit"):
+            self._shell.on_not_found = lambda cmd_name: (
+                self._emit_fire_and_forget(HookEvent.SHELL_NOT_FOUND, cmd_name)
+            )
+
         # Auto-register exec tool if UsesTools is composed
         if hasattr(self, "register_tool"):
             self._register_shell_tool()
+
+    def _emit_fire_and_forget(self, event: HookEvent, *args: Any) -> None:
+        if not hasattr(self, "_emit"):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._emit(event, *args))
+        except RuntimeError:
+            pass
 
     def _ensure_has_shell(self) -> None:
         if not hasattr(self, "_shell"):
@@ -89,10 +105,18 @@ class HasShell:
         return self.shell.fs
 
     def exec(self, command: str) -> ExecResult:
-        return self.shell.exec(command)
+        self._emit_fire_and_forget(HookEvent.SHELL_CALL, command)
+        old_cwd = self.shell.cwd
+        result = self.shell.exec(command)
+        self._emit_fire_and_forget(HookEvent.SHELL_RESULT, command, result)
+        if self.shell.cwd != old_cwd:
+            self._emit_fire_and_forget(HookEvent.SHELL_CWD, old_cwd, self.shell.cwd)
+        return result
 
     def register_command(self, name: str, handler: Callable) -> None:
         self.shell.register_command(name, handler)
+        self._emit_fire_and_forget(HookEvent.COMMAND_REGISTER, name)
 
     def unregister_command(self, name: str) -> None:
         self.shell.unregister_command(name)
+        self._emit_fire_and_forget(HookEvent.COMMAND_UNREGISTER, name)

@@ -116,7 +116,7 @@ stateDiagram-v2
 | Component | Responsibility |
 |-----------|---------------|
 | **BaseAgent** | Core agent loop: manages turns, calls LLM, handles streaming responses, tool execution dispatch |
-| **HasHooks** | Lifecycle event system: register callbacks for 10 hook events, concurrent dispatch (Python/TS) or sequential (PHP) |
+| **HasHooks** | Lifecycle event system: register callbacks for 18 hook events, concurrent dispatch (Python/TS) or sequential (PHP) |
 | **HasMiddleware** | Sequential message pipeline: pre-processing of outgoing messages, post-processing of responses |
 | **UsesTools** | Tool registration and execution: declarative definitions, automatic JSON schema from type hints, async execution |
 | **EmitsEvents** | Event emission configuration: registers event types, builds prompts instructing LLM to emit events, manages per-run event selection |
@@ -127,7 +127,7 @@ stateDiagram-v2
 | **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
 | **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
-| **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell |
+| **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell. Emits `shell_call`, `shell_result`, `shell_not_found`, and `shell_cwd` hooks when `HasHooks` is also composed |
 
 ---
 

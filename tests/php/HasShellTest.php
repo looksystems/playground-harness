@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace AgentHarness\Tests;
 
+use AgentHarness\ExecResult;
+use AgentHarness\HasHooks;
 use AgentHarness\HasShell;
+use AgentHarness\HookEvent;
 use AgentHarness\Shell;
 use AgentHarness\ShellRegistry;
 use AgentHarness\StandardAgent;
@@ -26,6 +29,16 @@ class ShellOnly
  */
 class ShellWithTools
 {
+    use HasShell;
+    use UsesTools;
+}
+
+/**
+ * Class using HasHooks, HasShell, and UsesTools for hook tests.
+ */
+class HookShellAgent
+{
+    use HasHooks;
     use HasShell;
     use UsesTools;
 }
@@ -176,5 +189,134 @@ class HasShellTest extends TestCase
         $result = $obj->executeTool('exec', ['command' => 'touch newfile.txt']);
         $decoded = json_decode($result, true);
         $this->assertSame('(no output)', $decoded);
+    }
+
+    public function testShellCallHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $calls = [];
+        $obj->on(HookEvent::ShellCall, function (string $cmd) use (&$calls) {
+            $calls[] = $cmd;
+        });
+        $obj->execCommand('echo hello');
+        $this->assertSame(['echo hello'], $calls);
+    }
+
+    public function testShellResultHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $results = [];
+        $obj->on(HookEvent::ShellResult, function (string $cmd, ExecResult $result) use (&$results) {
+            $results[] = ['cmd' => $cmd, 'exitCode' => $result->exitCode];
+        });
+        $obj->execCommand('echo hello');
+        $this->assertSame([['cmd' => 'echo hello', 'exitCode' => 0]], $results);
+    }
+
+    public function testShellNotFoundHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $notFound = [];
+        $obj->on(HookEvent::ShellNotFound, function (string $name) use (&$notFound) {
+            $notFound[] = $name;
+        });
+        $obj->execCommand('nonexistent arg1');
+        $this->assertSame(['nonexistent'], $notFound);
+    }
+
+    public function testShellNotFoundInPipeline(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $notFound = [];
+        $obj->on(HookEvent::ShellNotFound, function (string $name) use (&$notFound) {
+            $notFound[] = $name;
+        });
+        $obj->execCommand('echo hi | bogus');
+        $this->assertSame(['bogus'], $notFound);
+    }
+
+    public function testShellCwdHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $obj->fs()->write('/tmp/.keep', '');
+        $cwdChanges = [];
+        $obj->on(HookEvent::ShellCwd, function (string $old, string $new) use (&$cwdChanges) {
+            $cwdChanges[] = ['old' => $old, 'new' => $new];
+        });
+        $obj->execCommand('cd /tmp');
+        $this->assertCount(1, $cwdChanges);
+        $this->assertSame('/tmp', $cwdChanges[0]['new']);
+    }
+
+    public function testNoCwdHookWhenUnchanged(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $cwdChanges = [];
+        $obj->on(HookEvent::ShellCwd, function (string $old, string $new) use (&$cwdChanges) {
+            $cwdChanges[] = ['old' => $old, 'new' => $new];
+        });
+        $obj->execCommand('echo hello');
+        $this->assertEmpty($cwdChanges);
+    }
+
+    public function testHooksDontFireWithoutHasHooks(): void
+    {
+        $obj = new ShellOnly();
+        $obj->initHasShell();
+        // Should not throw
+        $obj->execCommand('echo hello');
+        $this->assertTrue(true);
+    }
+
+    public function testCommandRegisterHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $registered = [];
+        $obj->on(HookEvent::CommandRegister, function (string $name) use (&$registered) {
+            $registered[] = $name;
+        });
+        $obj->registerCommand('mycmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "ok\n");
+        });
+        $this->assertSame(['mycmd'], $registered);
+    }
+
+    public function testCommandUnregisterHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $obj->registerCommand('mycmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "ok\n");
+        });
+        $unregistered = [];
+        $obj->on(HookEvent::CommandUnregister, function (string $name) use (&$unregistered) {
+            $unregistered[] = $name;
+        });
+        $obj->unregisterCommand('mycmd');
+        $this->assertSame(['mycmd'], $unregistered);
+    }
+
+    public function testToolRegisterHook(): void
+    {
+        $obj = new HookShellAgent();
+        $obj->initHasShell();
+        $registered = [];
+        $obj->on(HookEvent::ToolRegister, function (ToolDef $tool) use (&$registered) {
+            $registered[] = $tool->name;
+        });
+        $obj->registerTool(ToolDef::make(
+            name: 'test_tool',
+            description: 'test',
+            parameters: ['type' => 'object', 'properties' => new \stdClass()],
+            execute: fn(array $args) => 'ok',
+        ));
+        $this->assertContains('test_tool', $registered);
     }
 }

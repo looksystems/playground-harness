@@ -35,6 +35,13 @@ trait HasShell
             );
         }
 
+        if (method_exists($this, 'emit')) {
+            $self = $this;
+            $this->shell->onNotFound = function (string $cmdName) use ($self) {
+                $self->emit(HookEvent::ShellNotFound, $cmdName);
+            };
+        }
+
         // Auto-register exec tool if UsesTools trait is composed
         if (method_exists($this, 'registerTool')) {
             $this->registerShellTool();
@@ -105,16 +112,33 @@ trait HasShell
 
     public function execCommand(string $command): ExecResult
     {
-        return $this->shell()->exec($command);
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::ShellCall, $command);
+        }
+        $oldCwd = $this->shell()->cwd;
+        $result = $this->shell()->exec($command);
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::ShellResult, $command, $result);
+            if ($this->shell()->cwd !== $oldCwd) {
+                $this->emit(HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
+            }
+        }
+        return $result;
     }
 
     public function registerCommand(string $name, \Closure $handler): void
     {
         $this->shell()->registerCommand($name, $handler);
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::CommandRegister, $name);
+        }
     }
 
     public function unregisterCommand(string $name): void
     {
         $this->shell()->unregisterCommand($name);
+        if (method_exists($this, 'emit')) {
+            $this->emit(HookEvent::CommandUnregister, $name);
+        }
     }
 }

@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, TypeVar, get_type_hints
 
+from src.python.has_hooks import HookEvent
+
 logger = logging.getLogger(__name__)
 
 PYTHON_TYPE_TO_JSON = {
@@ -77,6 +79,8 @@ class UsesTools:
             self.__init_uses_tools__()
         if isinstance(fn_or_def, ToolDef):
             self._tools[fn_or_def.name] = fn_or_def
+            if hasattr(self, "_emit_fire_and_forget"):
+                self._emit_fire_and_forget(HookEvent.TOOL_REGISTER, fn_or_def)
             return
         meta = getattr(fn_or_def, "_tool_meta", None)
         if meta is None:
@@ -88,6 +92,8 @@ class UsesTools:
             parameters=meta["schema"] or _build_param_schema(fn_or_def),
         )
         self._tools[td.name] = td
+        if hasattr(self, "_emit_fire_and_forget"):
+            self._emit_fire_and_forget(HookEvent.TOOL_REGISTER, td)
 
     def _tools_schema(self) -> list[dict[str, Any]]:
         if not hasattr(self, "_tools"):

@@ -16,4 +16,12 @@ enum HookEvent: string
     case Retry = 'retry';
     case TokenStream = 'token_stream';
     case Error = 'error';
+    case ShellCall = 'shell_call';
+    case ShellResult = 'shell_result';
+    case ShellNotFound = 'shell_not_found';
+    case ShellCwd = 'shell_cwd';
+    case ToolRegister = 'tool_register';
+    case ToolUnregister = 'tool_unregister';
+    case CommandRegister = 'command_register';
+    case CommandUnregister = 'command_unregister';
 }

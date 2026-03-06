@@ -54,7 +54,7 @@ const agent = new MyAgent({ model: "gpt-4" });
 
 ## Lifecycle Hooks
 
-The `HookEvent` enum defines the same 10 lifecycle events as the Python implementation. Dispatch uses `Promise.allSettled` so all registered callbacks run concurrently and a single failure does not short-circuit the rest.
+The `HookEvent` enum defines the same 18 lifecycle events as the Python implementation. Dispatch uses `Promise.allSettled` so all registered callbacks run concurrently and a single failure does not short-circuit the rest.
 
 ```typescript
 import { HookEvent } from "./has-hooks.js";
@@ -238,5 +238,17 @@ shell.unregisterCommand("echo"); // throws Error
 ```
 
 Custom commands survive `clone()` and `ShellRegistry.get()`, so registry templates can include domain commands.
+
+### Shell hooks
+
+When `HasHooks` is also composed, shell operations emit lifecycle hooks:
+
+```typescript
+import { HookEvent } from "./has-hooks.js";
+
+agent.on(HookEvent.SHELL_CALL, (cmd) => console.log(`Executing: ${cmd}`));
+agent.on(HookEvent.SHELL_NOT_FOUND, (name) => console.log(`Unknown: ${name}`));
+agent.on(HookEvent.SHELL_CWD, (old, newCwd) => console.log(`cd ${old} -> ${newCwd}`));
+```
 
 TypeScript lazy file providers are async (returning `Promise<string>`), allowing providers that fetch from APIs or databases. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.

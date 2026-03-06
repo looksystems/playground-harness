@@ -43,9 +43,9 @@ This gives you lifecycle hooks and tool support without middleware or event stre
 
 ## Lifecycle Hooks
 
-Ten hook events are defined in `HookEvent(str, Enum)`:
+Eighteen hook events are defined in `HookEvent(str, Enum)`:
 
-`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`.
+`run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`.
 
 Register handlers with `agent.on()`:
 
@@ -222,5 +222,17 @@ shell.unregister_command("echo")  # raises ValueError
 ```
 
 Custom commands survive `clone()` and `ShellRegistry.get()`, so registry templates can include domain commands.
+
+### Shell hooks
+
+When `HasHooks` is also composed, shell operations emit lifecycle hooks:
+
+```python
+from src.python.has_hooks import HookEvent
+
+agent.on(HookEvent.SHELL_CALL, lambda cmd: print(f"Executing: {cmd}"))
+agent.on(HookEvent.SHELL_NOT_FOUND, lambda name: print(f"Unknown: {name}"))
+agent.on(HookEvent.SHELL_CWD, lambda old, new: print(f"cd {old} -> {new}"))
+```
 
 Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.

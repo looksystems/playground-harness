@@ -1,3 +1,5 @@
+import { HookEvent } from "./has-hooks.js";
+
 type Constructor<T = {}> = new (...args: any[]) => T;
 
 export interface ToolDef {
@@ -17,6 +19,9 @@ export function UsesTools<TBase extends Constructor>(Base: TBase) {
 
     register_tool(toolDef: ToolDef): void {
       this._tools.set(toolDef.name, toolDef);
+      if (typeof (this as any)._emit === "function") {
+        void (this as any)._emit(HookEvent.TOOL_REGISTER, toolDef);
+      }
     }
 
     _tools_schema(): Record<string, any>[] {

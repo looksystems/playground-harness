@@ -21,6 +21,14 @@ class HookEvent(str, Enum):
     RETRY = "retry"
     TOKEN_STREAM = "token_stream"
     ERROR = "error"
+    SHELL_CALL = "shell_call"
+    SHELL_RESULT = "shell_result"
+    SHELL_NOT_FOUND = "shell_not_found"
+    SHELL_CWD = "shell_cwd"
+    TOOL_REGISTER = "tool_register"
+    TOOL_UNREGISTER = "tool_unregister"
+    COMMAND_REGISTER = "command_register"
+    COMMAND_UNREGISTER = "command_unregister"
 
 
 async def _call_fn(fn: Callable, *args: Any) -> Any:

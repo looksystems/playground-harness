@@ -3,6 +3,7 @@ import { HasShell } from "../../src/typescript/has-shell.js";
 import { Shell, ShellRegistry } from "../../src/typescript/shell.js";
 import { VirtualFS } from "../../src/typescript/virtual-fs.js";
 import { UsesTools, ToolDef } from "../../src/typescript/uses-tools.js";
+import { HasHooks, HookEvent } from "../../src/typescript/has-hooks.js";
 
 // Simple base class for testing
 class Base {
@@ -136,5 +137,130 @@ describe("HasShell", () => {
     agent._ensureHasShell();
     const shell2 = agent._shell;
     expect(shell1).toBe(shell2);
+  });
+
+  // Create a hook-capable agent class
+  const HookShellAgent = HasShell(HasHooks(UsesTools(Base)));
+
+  describe("Shell hooks", () => {
+    it("emits SHELL_CALL before exec", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const calls: string[] = [];
+      agent.on(HookEvent.SHELL_CALL, (cmd: string) => { calls.push(cmd); });
+      agent.exec("echo hello");
+      await new Promise(r => setTimeout(r, 0));
+      expect(calls).toEqual(["echo hello"]);
+    });
+
+    it("emits SHELL_RESULT after exec", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const results: any[] = [];
+      agent.on(HookEvent.SHELL_RESULT, (cmd: string, result: any) => {
+        results.push({ cmd, exitCode: result.exitCode });
+      });
+      agent.exec("echo hello");
+      await new Promise(r => setTimeout(r, 0));
+      expect(results).toEqual([{ cmd: "echo hello", exitCode: 0 }]);
+    });
+
+    it("emits SHELL_NOT_FOUND for unknown commands", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const notFound: string[] = [];
+      agent.on(HookEvent.SHELL_NOT_FOUND, (name: string) => { notFound.push(name); });
+      agent.exec("nonexistent arg1");
+      await new Promise(r => setTimeout(r, 0));
+      expect(notFound).toEqual(["nonexistent"]);
+    });
+
+    it("emits SHELL_NOT_FOUND inside pipeline", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const notFound: string[] = [];
+      agent.on(HookEvent.SHELL_NOT_FOUND, (name: string) => { notFound.push(name); });
+      agent.exec("echo hi | bogus");
+      await new Promise(r => setTimeout(r, 0));
+      expect(notFound).toEqual(["bogus"]);
+    });
+
+    it("emits SHELL_CWD when cwd changes", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      agent.fs.write("/tmp/.keep", "");
+      const cwdChanges: any[] = [];
+      agent.on(HookEvent.SHELL_CWD, (oldCwd: string, newCwd: string) => {
+        cwdChanges.push({ oldCwd, newCwd });
+      });
+      agent.exec("cd /tmp");
+      await new Promise(r => setTimeout(r, 0));
+      expect(cwdChanges.length).toBe(1);
+      expect(cwdChanges[0].newCwd).toBe("/tmp");
+    });
+
+    it("does not emit SHELL_CWD when cwd stays the same", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const cwdChanges: any[] = [];
+      agent.on(HookEvent.SHELL_CWD, (oldCwd: string, newCwd: string) => {
+        cwdChanges.push({ oldCwd, newCwd });
+      });
+      agent.exec("echo hello");
+      await new Promise(r => setTimeout(r, 0));
+      expect(cwdChanges).toEqual([]);
+    });
+
+    it("hooks don't fire without HasHooks", () => {
+      const agent = new ShellAgent();
+      // Should not throw
+      agent.exec("echo hello");
+    });
+
+    it("throwing hook doesn't break exec", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      agent.on(HookEvent.SHELL_CALL, () => { throw new Error("boom"); });
+      const result = agent.exec("echo hello");
+      expect(result.stdout).toBe("hello\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("emits COMMAND_REGISTER on registerCommand", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const registered: string[] = [];
+      agent.on(HookEvent.COMMAND_REGISTER, (name: string) => { registered.push(name); });
+      agent.registerCommand("mycmd", (args, stdin) => ({ stdout: "ok\n", stderr: "", exitCode: 0 }));
+      await new Promise(r => setTimeout(r, 0));
+      expect(registered).toEqual(["mycmd"]);
+    });
+
+    it("emits COMMAND_UNREGISTER on unregisterCommand", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      agent.registerCommand("mycmd", (args, stdin) => ({ stdout: "ok\n", stderr: "", exitCode: 0 }));
+      const unregistered: string[] = [];
+      agent.on(HookEvent.COMMAND_UNREGISTER, (name: string) => { unregistered.push(name); });
+      agent.unregisterCommand("mycmd");
+      await new Promise(r => setTimeout(r, 0));
+      expect(unregistered).toEqual(["mycmd"]);
+    });
+
+    it("emits TOOL_REGISTER on register_tool", async () => {
+      const agent = new HookShellAgent();
+      agent._initHasShell();
+      const registered: any[] = [];
+      agent.on(HookEvent.TOOL_REGISTER, (toolDef: any) => { registered.push(toolDef.name); });
+      agent.register_tool({
+        name: "test_tool",
+        description: "test",
+        execute: () => "ok",
+        parameters: { type: "object", properties: {} },
+      });
+      await new Promise(r => setTimeout(r, 0));
+      // "exec" was auto-registered, plus our "test_tool"
+      expect(registered).toContain("test_tool");
+    });
   });
 });

@@ -48,3 +48,4 @@ Key design choices:
 - Concurrent dispatch in Python/TypeScript means hook ordering is not guaranteed — don't rely on one hook running before another
 - The 10-event set covers the full lifecycle without being so granular that it's confusing
 - Adding new events requires updating the `HookEvent` enum, which is a deliberate friction point to prevent event proliferation
+- The event set was later expanded to 18 events with [ADR 0022](0022-shell-and-registration-hooks.md), adding shell execution, registration, and CWD change hooks.

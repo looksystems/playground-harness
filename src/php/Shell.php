@@ -667,6 +667,7 @@ class Shell
     private array $customCommands = [];
     /** @var array<string, true> */
     private array $builtinNames = [];
+    public ?\Closure $onNotFound = null;
 
     private int $iterationCounter = 0;
     private int $cmdSubDepth = 0;
@@ -870,6 +871,9 @@ class Shell
         $handler = $this->builtins[$cmdName] ?? null;
         if ($handler === null) {
             $this->env['?'] = '127';
+            if ($this->onNotFound !== null) {
+                ($this->onNotFound)($cmdName);
+            }
             return new ExecResult(stderr: "{$cmdName}: command not found\n", exitCode: 127);
         }
 

@@ -7,7 +7,7 @@ Agent Harness provides a small set of well-defined building blocks that can be m
 ## Key Capabilities
 
 - **Trait/mixin composition** — Mix and match agent capabilities (hooks, middleware, tools, events, shell) via language-native composition patterns.
-- **Lifecycle hooks** — 10 hook events covering the full agent run cycle: `run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`.
+- **Lifecycle hooks** — 18 hook events covering the full agent run cycle plus shell and registration events: `run_start`, `run_end`, `llm_request`, `llm_response`, `tool_call`, `tool_result`, `tool_error`, `retry`, `token_stream`, `error`, `shell_call`, `shell_result`, `shell_not_found`, `shell_cwd`, `command_register`, `command_unregister`, `tool_register`, `tool_unregister`.
 - **Middleware pipeline** — Sequential pre/post processing of messages with ordered, composable middleware.
 - **Tool registration** — Declarative tool definitions with automatic schema generation.
 - **Event emission** — The LLM emits structured YAML events inline in text, which are parsed and routed through a message bus.

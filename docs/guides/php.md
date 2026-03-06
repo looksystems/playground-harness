@@ -62,7 +62,7 @@ class MyAgent extends BaseAgent
 
 ## Lifecycle Hooks
 
-`HookEvent` is a string-backed enum with 10 cases. Because PHP is synchronous,
+`HookEvent` is a string-backed enum with 18 cases. Because PHP is synchronous,
 dispatch is always sequential.
 
 ```php
@@ -271,5 +271,23 @@ $shell->unregisterCommand('echo'); // throws RuntimeException
 ```
 
 Custom commands survive `cloneShell()` and `ShellRegistry::get()`, so registry templates can include domain commands.
+
+### Shell hooks
+
+When `HasHooks` is also composed, shell operations emit lifecycle hooks:
+
+```php
+use AgentHarness\HookEvent;
+
+$agent->on(HookEvent::ShellCall, function (string $cmd) {
+    echo "Executing: {$cmd}\n";
+});
+$agent->on(HookEvent::ShellNotFound, function (string $name) {
+    echo "Unknown: {$name}\n";
+});
+$agent->on(HookEvent::ShellCwd, function (string $old, string $new) {
+    echo "cd {$old} -> {$new}\n";
+});
+```
 
 See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
