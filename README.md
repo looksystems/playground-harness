@@ -49,3 +49,5 @@ Need to think further about the message bus and whether there should be any conv
 Need to add support for LLM gateways including rate limits, retries, observability, etc cf middleware.
 
 Need to add support for [open responses](https://www.openresponses.org) ie. create common classes or use standard libraries.
+
+Consider implementing something like [mcpporter](https://github.com/steipete/mcporter) for mcp support.
