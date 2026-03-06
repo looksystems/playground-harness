@@ -220,6 +220,70 @@ All commands are pure functions operating on the in-memory VirtualFS. No real sh
 
 ---
 
+## Shell Driver Architecture
+
+The shell and filesystem are abstracted behind two open contracts, allowing the backend to be swapped without changing agent code.
+
+### Contracts
+
+**FilesystemDriver** — abstracts the virtual filesystem:
+- `write`, `write_lazy`, `read`, `read_text`, `exists`, `remove`
+- `is_dir`, `listdir`, `find`, `stat`, `clone`
+
+**ShellDriver** — abstracts the shell interpreter:
+- `fs` (FilesystemDriver), `cwd`, `env`
+- `exec(command)`, `register_command(name, handler)`, `unregister_command(name)`, `clone`
+- `on_not_found` callback
+
+**ShellDriverFactory** — resolves driver names to instances:
+- `register(name, factory)` — register a custom driver
+- `create(name?, opts?)` — create a driver (defaults to `"builtin"`)
+- `default` — global default driver name
+- `reset()` — clear registry and reset default
+
+### Built-in Driver
+
+The built-in driver wraps the existing `VirtualFS` and `Shell` classes. It's the default and requires no external dependencies.
+
+### Driver Selection
+
+Drivers can be selected globally or per-agent:
+
+```python
+# Global default
+ShellDriverFactory.default = "bashkit"
+
+# Per-agent via builder
+agent = StandardAgent.build("gpt-4").driver("bashkit").create()
+```
+
+### Custom Drivers
+
+Users can implement and register custom drivers:
+
+```python
+class MyDriver(ShellDriver):
+    # implement all abstract methods
+    ...
+
+ShellDriverFactory.register("my-driver", lambda **kw: MyDriver(**kw))
+```
+
+### Architecture Diagram
+
+```mermaid
+graph TD
+    HS[HasShell Mixin] --> SDF[ShellDriverFactory]
+    SDF --> BSD[BuiltinShellDriver]
+    SDF --> CD[Custom Drivers]
+    BSD --> S[Shell]
+    BSD --> BFD[BuiltinFilesystemDriver]
+    BFD --> VFS[VirtualFS]
+    CD --> |user-implemented| SDI[ShellDriver interface]
+```
+
+---
+
 ## Event Format
 
 The LLM emits events as YAML blocks delimited by `---event` (start) and `---` (end):

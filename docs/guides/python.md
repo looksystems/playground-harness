@@ -279,6 +279,25 @@ agent.on(HookEvent.SHELL_NOT_FOUND, lambda name: print(f"Unknown: {name}"))
 agent.on(HookEvent.SHELL_CWD, lambda old, new: print(f"cd {old} -> {new}"))
 ```
 
+### Shell Drivers
+
+The shell backend is swappable via `FilesystemDriver` and `ShellDriver` contracts. The built-in driver wraps `VirtualFS` and `Shell` and is used by default — no changes needed for existing code.
+
+```python
+from src.python.shell_driver import ShellDriverFactory
+
+# Set a global default driver
+ShellDriverFactory.default = "bashkit"
+
+# Per-agent via builder
+agent = await StandardAgent.build("gpt-4").driver("bashkit").create()
+
+# Register a custom driver
+from src.python.shell_driver import ShellDriver
+
+ShellDriverFactory.register("my-driver", lambda **kw: MyDriver(**kw))
+```
+
 Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
 ## Skills

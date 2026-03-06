@@ -281,6 +281,23 @@ agent.on(HookEvent.SHELL_NOT_FOUND, (name) => console.log(`Unknown: ${name}`));
 agent.on(HookEvent.SHELL_CWD, (old, newCwd) => console.log(`cd ${old} -> ${newCwd}`));
 ```
 
+### Shell Drivers
+
+The shell backend is swappable via `FilesystemDriver` and `ShellDriver` contracts. The built-in driver wraps `VirtualFS` and `Shell` and is used by default — no changes needed for existing code.
+
+```typescript
+import { ShellDriverFactory } from "./shell-driver.js";
+
+// Set a global default driver
+ShellDriverFactory.default = "bashkit";
+
+// Per-agent via builder
+const agent = await StandardAgent.build("gpt-4").driver("bashkit").create();
+
+// Register a custom driver
+ShellDriverFactory.register("my-driver", (opts) => new MyDriver(opts));
+```
+
 TypeScript lazy file providers are async (returning `Promise<string>`), allowing providers that fetch from APIs or databases. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
 ## Skills

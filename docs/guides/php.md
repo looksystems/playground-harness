@@ -323,6 +323,23 @@ $agent->on(HookEvent::ShellCwd, function (string $old, string $new) {
 });
 ```
 
+### Shell Drivers
+
+The shell backend is swappable via `FilesystemDriver` and `ShellDriver` contracts. The built-in driver wraps `VirtualFS` and `Shell` and is used by default — no changes needed for existing code.
+
+```php
+use AgentHarness\ShellDriverFactory;
+
+// Set a global default driver
+ShellDriverFactory::$default = 'bashkit';
+
+// Per-agent via builder
+$agent = StandardAgent::build('gpt-4')->driver('bashkit')->create();
+
+// Register a custom driver
+ShellDriverFactory::register('my-driver', fn(array $opts) => new MyDriver($opts));
+```
+
 See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
 ## Skills
