@@ -17,7 +17,7 @@ Along with typical agentic features:
  * hooks
  * middleware
 
-For now, I've excluded mcp support, as this could/should be implemented with a combinatio of a custom skill and cli command.
+For now, mcp support has been deferred, as integrations would be better implemented with a combination of a custom skill and cli command.
 
 The ultimate aim is for this work to be integrated into an event driven/sourced workflow package, which would then allow orchestration.
 
