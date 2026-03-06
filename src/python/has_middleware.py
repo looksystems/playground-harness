@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import inspect
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, Self, runtime_checkable
 
-
-async def _call_fn(fn, *args):
-    result = fn(*args)
-    if inspect.isawaitable(result):
-        return await result
-    return result
+from src.python._utils import call_fn_kwargs
 
 
 @runtime_checkable
@@ -29,21 +23,42 @@ class HasMiddleware:
     def __init_has_middleware__(self) -> None:
         self._middleware: list[BaseMiddleware] = []
 
-    def use(self, middleware: BaseMiddleware) -> None:
+    def use(self, middleware: BaseMiddleware) -> Self:
         if not hasattr(self, "_middleware"):
             self.__init_has_middleware__()
         self._middleware.append(middleware)
+        return self
+
+    def remove_middleware(self, middleware: BaseMiddleware) -> Self:
+        if not hasattr(self, "_middleware"):
+            self.__init_has_middleware__()
+        try:
+            self._middleware.remove(middleware)
+        except ValueError:
+            pass
+        return self
+
+    @property
+    def middleware(self) -> list[BaseMiddleware]:
+        if not hasattr(self, "_middleware"):
+            self.__init_has_middleware__()
+        return list(self._middleware)
+
+    def _prepend_middleware(self, middleware: BaseMiddleware) -> None:
+        if not hasattr(self, "_middleware"):
+            self.__init_has_middleware__()
+        self._middleware.insert(0, middleware)
 
     async def _run_pre(self, messages: list[dict], context: Any) -> list[dict]:
         if not hasattr(self, "_middleware"):
             self.__init_has_middleware__()
         for mw in self._middleware:
-            messages = await _call_fn(mw.pre, messages, context)
+            messages = await call_fn_kwargs(mw.pre, messages=messages, context=context)
         return messages
 
     async def _run_post(self, message: dict, context: Any) -> dict:
         if not hasattr(self, "_middleware"):
             self.__init_has_middleware__()
         for mw in self._middleware:
-            message = await _call_fn(mw.post, message, context)
+            message = await call_fn_kwargs(mw.post, message=message, context=context)
         return message

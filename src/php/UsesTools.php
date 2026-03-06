@@ -9,25 +9,24 @@ trait UsesTools
     /** @var array<string, ToolDef> */
     private array $tools = [];
 
-    private function tryEmitFromTools(HookEvent $event, mixed ...$args): void
-    {
-        if (method_exists($this, 'emit')) {
-            $this->emit($event, ...$args);
-        }
-    }
-
     public function registerTool(ToolDef $tool): static
     {
         $this->tools[$tool->name] = $tool;
-        $this->tryEmitFromTools(HookEvent::ToolRegister, $tool);
+        Helpers::tryEmit($this,HookEvent::ToolRegister, $tool);
         return $this;
     }
 
     public function unregisterTool(string $name): static
     {
         unset($this->tools[$name]);
-        $this->tryEmitFromTools(HookEvent::ToolUnregister, $name);
+        Helpers::tryEmit($this,HookEvent::ToolUnregister, $name);
         return $this;
+    }
+
+    /** @return array<string, ToolDef> */
+    public function getTools(): array
+    {
+        return $this->tools;
     }
 
     /**

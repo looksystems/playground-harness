@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Self
+
+from src.python._utils import call_fn
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +36,31 @@ class HookEvent(str, Enum):
     SKILL_TEARDOWN = "skill_teardown"
 
 
-async def _call_fn(fn: Callable, *args: Any) -> Any:
-    result = fn(*args)
-    if inspect.isawaitable(result):
-        return await result
-    return result
-
-
 class HasHooks:
     def __init_has_hooks__(self) -> None:
         self._hooks: dict[HookEvent, list[Callable]] = defaultdict(list)
 
-    def on(self, event: HookEvent, callback: Callable) -> None:
+    def on(self, event: HookEvent, callback: Callable) -> Self:
         if not hasattr(self, "_hooks"):
             self.__init_has_hooks__()
         self._hooks[event].append(callback)
+        return self
+
+    def off(self, event: HookEvent, callback: Callable) -> Self:
+        if not hasattr(self, "_hooks"):
+            self.__init_has_hooks__()
+        cbs = self._hooks.get(event, [])
+        try:
+            cbs.remove(callback)
+        except ValueError:
+            pass
+        return self
+
+    @property
+    def hooks(self) -> dict[HookEvent, list[Callable]]:
+        if not hasattr(self, "_hooks"):
+            self.__init_has_hooks__()
+        return {k: list(v) for k, v in self._hooks.items()}
 
     async def _emit(self, event: HookEvent, *args: Any) -> None:
         if not hasattr(self, "_hooks"):
@@ -58,7 +69,7 @@ class HasHooks:
         if not callbacks:
             return
         results = await asyncio.gather(
-            *[_call_fn(cb, *args) for cb in callbacks],
+            *[call_fn(cb, *args) for cb in callbacks],
             return_exceptions=True,
         )
         for r in results:

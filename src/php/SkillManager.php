@@ -15,6 +15,12 @@ class SkillManager
     /** @var array<string, list<string>> */
     private array $skillTools = [];
 
+    /** @var array<string, list<Middleware>> */
+    private array $skillMiddleware = [];
+
+    /** @var array<string, list<array{HookEvent, callable}>> */
+    private array $skillHooks = [];
+
     /** @var array<string, list<string>> */
     private array $skillCommands = [];
 
@@ -56,21 +62,26 @@ class SkillManager
         $this->skillTools[$skill->name] = $toolNames;
 
         // Register middleware
+        $mwList = $skill->middleware();
         if (method_exists($this->agent, 'use')) {
-            foreach ($skill->middleware() as $mw) {
+            foreach ($mwList as $mw) {
                 $this->agent->use($mw);
             }
         }
+        $this->skillMiddleware[$skill->name] = $mwList;
 
         // Register hooks
+        $hookPairs = [];
         if (method_exists($this->agent, 'on')) {
             foreach ($skill->hooks() as $eventValue => $callbacks) {
                 $event = $eventValue instanceof HookEvent ? $eventValue : HookEvent::from($eventValue);
                 foreach ($callbacks as $callback) {
                     $this->agent->on($event, $callback);
+                    $hookPairs[] = [$event, $callback];
                 }
             }
         }
+        $this->skillHooks[$skill->name] = $hookPairs;
 
         // Register commands
         $cmdNames = [];
@@ -109,6 +120,22 @@ class SkillManager
         }
         unset($this->skillTools[$name]);
 
+        // Remove middleware
+        if (method_exists($this->agent, 'removeMiddleware') && isset($this->skillMiddleware[$name])) {
+            foreach ($this->skillMiddleware[$name] as $mw) {
+                $this->agent->removeMiddleware($mw);
+            }
+        }
+        unset($this->skillMiddleware[$name]);
+
+        // Remove hooks
+        if (method_exists($this->agent, 'off') && isset($this->skillHooks[$name])) {
+            foreach ($this->skillHooks[$name] as [$event, $cb]) {
+                $this->agent->off($event, $cb);
+            }
+        }
+        unset($this->skillHooks[$name]);
+
         // Remove commands
         if (method_exists($this->agent, 'unregisterCommand') && isset($this->skillCommands[$name])) {
             foreach ($this->skillCommands[$name] as $cmdName) {
@@ -142,6 +169,8 @@ class SkillManager
         $this->skills = [];
         $this->mountOrder = [];
         $this->skillTools = [];
+        $this->skillMiddleware = [];
+        $this->skillHooks = [];
         $this->skillCommands = [];
     }
 

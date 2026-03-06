@@ -4,8 +4,9 @@ import inspect
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar, get_type_hints
+from typing import Any, Callable, Self, TypeVar, get_type_hints
 
+from src.python._utils import call_fn_kwargs, emit_fire_and_forget
 from src.python.has_hooks import HookEvent
 
 logger = logging.getLogger(__name__)
@@ -63,25 +64,17 @@ def tool(
     return decorator
 
 
-async def _call_fn(fn: Callable, **kwargs: Any) -> Any:
-    result = fn(**kwargs)
-    if inspect.isawaitable(result):
-        return await result
-    return result
-
-
 class UsesTools:
     def __init_uses_tools__(self) -> None:
-        self._tools: dict[str, ToolDef] = {}
+        self._tools_registry: dict[str, ToolDef] = {}
 
-    def register_tool(self, fn_or_def: Callable | ToolDef) -> None:
-        if not hasattr(self, "_tools"):
+    def register_tool(self, fn_or_def: Callable | ToolDef) -> Self:
+        if not hasattr(self, "_tools_registry"):
             self.__init_uses_tools__()
         if isinstance(fn_or_def, ToolDef):
-            self._tools[fn_or_def.name] = fn_or_def
-            if hasattr(self, "_emit_fire_and_forget"):
-                self._emit_fire_and_forget(HookEvent.TOOL_REGISTER, fn_or_def)
-            return
+            self._tools_registry[fn_or_def.name] = fn_or_def
+            emit_fire_and_forget(self, HookEvent.TOOL_REGISTER, fn_or_def)
+            return self
         meta = getattr(fn_or_def, "_tool_meta", None)
         if meta is None:
             raise ValueError(f"{fn_or_def} is not decorated with @tool")
@@ -91,19 +84,25 @@ class UsesTools:
             function=fn_or_def,
             parameters=meta["schema"] or _build_param_schema(fn_or_def),
         )
-        self._tools[td.name] = td
-        if hasattr(self, "_emit_fire_and_forget"):
-            self._emit_fire_and_forget(HookEvent.TOOL_REGISTER, td)
+        self._tools_registry[td.name] = td
+        emit_fire_and_forget(self, HookEvent.TOOL_REGISTER, td)
+        return self
 
-    def unregister_tool(self, name: str) -> None:
-        if not hasattr(self, "_tools"):
+    def unregister_tool(self, name: str) -> Self:
+        if not hasattr(self, "_tools_registry"):
             self.__init_uses_tools__()
-        self._tools.pop(name, None)
-        if hasattr(self, "_emit_fire_and_forget"):
-            self._emit_fire_and_forget(HookEvent.TOOL_UNREGISTER, name)
+        self._tools_registry.pop(name, None)
+        emit_fire_and_forget(self, HookEvent.TOOL_UNREGISTER, name)
+        return self
+
+    @property
+    def tools(self) -> dict[str, ToolDef]:
+        if not hasattr(self, "_tools_registry"):
+            self.__init_uses_tools__()
+        return dict(self._tools_registry)
 
     def _tools_schema(self) -> list[dict[str, Any]]:
-        if not hasattr(self, "_tools"):
+        if not hasattr(self, "_tools_registry"):
             self.__init_uses_tools__()
         return [
             {
@@ -114,17 +113,17 @@ class UsesTools:
                     "parameters": t.parameters,
                 },
             }
-            for t in self._tools.values()
+            for t in self._tools_registry.values()
         ]
 
     async def _execute_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        if not hasattr(self, "_tools"):
+        if not hasattr(self, "_tools_registry"):
             self.__init_uses_tools__()
-        td = self._tools.get(name)
+        td = self._tools_registry.get(name)
         if td is None:
             return json.dumps({"error": f"Unknown tool: {name}"})
         try:
-            result = await _call_fn(td.function, **arguments)
+            result = await call_fn_kwargs(td.function, **arguments)
             return json.dumps(result, default=str)
         except Exception as e:
             logger.warning("Tool %s error: %s", name, e)

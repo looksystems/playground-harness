@@ -23,7 +23,7 @@ class TestStandardAgent:
         agent.register_tool(add)
         received = []
         agent.on(HookEvent.RUN_START, lambda: received.append("start"))
-        assert len(agent._tools_schema()) == 1
+        assert len(agent.tools) == 1
         asyncio.run(agent._emit(HookEvent.RUN_START))
         assert received == ["start"]
 

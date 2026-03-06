@@ -14,9 +14,22 @@ trait EmitsEvents
 
     private ?MessageBus $messageBus = null;
 
-    public function registerEvent(StructuredEvent $eventType): void
+    public function registerEvent(StructuredEvent $eventType): static
     {
         $this->eventRegistry[$eventType->name] = $eventType;
+        return $this;
+    }
+
+    public function unregisterEvent(string $name): static
+    {
+        unset($this->eventRegistry[$name]);
+        return $this;
+    }
+
+    /** @return array<string, StructuredEvent> */
+    public function getEvents(): array
+    {
+        return $this->eventRegistry;
     }
 
     /**

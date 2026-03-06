@@ -23,6 +23,12 @@ trait HasMiddleware
         return $this;
     }
 
+    /** @return list<Middleware> */
+    public function getMiddleware(): array
+    {
+        return [...$this->middlewareStack];
+    }
+
     public function runPre(array $messages, mixed $context): array
     {
         foreach ($this->middlewareStack as $mw) {

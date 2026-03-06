@@ -12,4 +12,9 @@ class StandardAgent extends BaseAgent
     use EmitsEvents;
     use HasShell;
     use HasSkills;
+
+    public static function build(string $model): AgentBuilder
+    {
+        return new AgentBuilder($model);
+    }
 }

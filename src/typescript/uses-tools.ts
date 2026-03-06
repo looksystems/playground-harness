@@ -1,4 +1,5 @@
 import { HookEvent } from "./has-hooks.js";
+import { tryEmit } from "./utils.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -20,21 +21,15 @@ export function UsesTools<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
     tools: Map<string, ToolDef> = new Map();
 
-    private tryEmit(event: HookEvent, ...args: any[]): void {
-      if (typeof (this as any).emit === "function") {
-        void (this as any).emit(event, ...args);
-      }
-    }
-
     registerTool(toolDef: ToolDef): this {
       this.tools.set(toolDef.name, toolDef);
-      this.tryEmit(HookEvent.TOOL_REGISTER, toolDef);
+      tryEmit(this, HookEvent.TOOL_REGISTER, toolDef);
       return this;
     }
 
     unregisterTool(name: string): this {
       this.tools.delete(name);
-      this.tryEmit(HookEvent.TOOL_UNREGISTER, name);
+      tryEmit(this, HookEvent.TOOL_UNREGISTER, name);
       return this;
     }
 

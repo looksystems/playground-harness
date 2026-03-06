@@ -1,4 +1,5 @@
 import { HookEvent } from "./has-hooks.js";
+import { tryEmit } from "./utils.js";
 import type { ToolDef } from "./uses-tools.js";
 import type { Middleware } from "./has-middleware.js";
 
@@ -80,6 +81,8 @@ export class SkillManager {
   private promptMw: SkillPromptMiddleware | null = null;
   private agent: any;
   private skillTools: Map<string, string[]> = new Map();
+  private skillMiddleware: Map<string, Middleware[]> = new Map();
+  private skillHooks: Map<string, Array<[HookEvent, (...args: any[]) => any]>> = new Map();
   private skillCommands: Map<string, string[]> = new Map();
 
   constructor(agent: any) {
@@ -120,12 +123,15 @@ export class SkillManager {
     }
     this.skillTools.set(skill.name, toolNames);
 
-    for (const mw of skill.middleware()) {
+    const mwList = skill.middleware();
+    for (const mw of mwList) {
       if (typeof this.agent.use === "function") {
         this.agent.use(mw);
       }
     }
+    this.skillMiddleware.set(skill.name, [...mwList]);
 
+    const hookPairs: Array<[HookEvent, (...args: any[]) => any]> = [];
     const hookDefs = skill.hooks();
     for (const [event, callbacks] of Object.entries(hookDefs)) {
       if (callbacks) {
@@ -133,9 +139,11 @@ export class SkillManager {
           if (typeof this.agent.on === "function") {
             this.agent.on(event as HookEvent, cb);
           }
+          hookPairs.push([event as HookEvent, cb]);
         }
       }
     }
+    this.skillHooks.set(skill.name, hookPairs);
 
     const cmdNames: string[] = [];
     const cmds = skill.commands();
@@ -168,6 +176,22 @@ export class SkillManager {
     }
     this.skillTools.delete(name);
 
+    const mws = this.skillMiddleware.get(name) ?? [];
+    for (const mw of mws) {
+      if (typeof this.agent.removeMiddleware === "function") {
+        this.agent.removeMiddleware(mw);
+      }
+    }
+    this.skillMiddleware.delete(name);
+
+    const hookPairs = this.skillHooks.get(name) ?? [];
+    for (const [event, cb] of hookPairs) {
+      if (typeof this.agent.off === "function") {
+        this.agent.off(event, cb);
+      }
+    }
+    this.skillHooks.delete(name);
+
     const cmdNames = this.skillCommands.get(name) ?? [];
     for (const cmdName of cmdNames) {
       if (typeof this.agent.unregisterCommand === "function") {
@@ -194,6 +218,8 @@ export class SkillManager {
     this.skills.clear();
     this.mountOrder = [];
     this.skillTools.clear();
+    this.skillMiddleware.clear();
+    this.skillHooks.clear();
     this.skillCommands.clear();
     this.rebuildPromptMiddleware();
   }
@@ -244,31 +270,27 @@ export function HasSkills<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
     skillManager?: SkillManager;
 
-    private tryEmit(event: HookEvent, ...args: any[]): void {
-      if (typeof (this as any).emit === "function") {
-        void (this as any).emit(event, ...args);
-      }
-    }
-
     ensureHasSkills(): void {
       if (!this.skillManager) {
         this.skillManager = new SkillManager(this);
       }
     }
 
-    async mount(skill: Skill, config?: Record<string, any>): Promise<void> {
+    async mount(skill: Skill, config?: Record<string, any>): Promise<this> {
       this.ensureHasSkills();
       await this.skillManager!.mount(skill, config);
-      this.tryEmit(HookEvent.SKILL_SETUP, skill.name, skill);
-      this.tryEmit(HookEvent.SKILL_MOUNT, skill.name, skill);
+      tryEmit(this, HookEvent.SKILL_SETUP, skill.name, skill);
+      tryEmit(this, HookEvent.SKILL_MOUNT, skill.name, skill);
+      return this;
     }
 
-    async unmount(name: string): Promise<void> {
+    async unmount(name: string): Promise<this> {
       this.ensureHasSkills();
       const skill = this.skillManager!.mounted.get(name);
-      this.tryEmit(HookEvent.SKILL_TEARDOWN, name, skill);
+      tryEmit(this, HookEvent.SKILL_TEARDOWN, name, skill);
       await this.skillManager!.unmount(name);
-      this.tryEmit(HookEvent.SKILL_UNMOUNT, name, skill);
+      tryEmit(this, HookEvent.SKILL_UNMOUNT, name, skill);
+      return this;
     }
 
     async shutdown(): Promise<void> {

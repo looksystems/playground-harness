@@ -11,8 +11,14 @@ export function EmitsEvents<TBase extends Constructor>(Base: TBase) {
     defaultEvents: string[] = [];
     private _bus: MessageBus = new MessageBus();
 
-    registerEvent(eventType: StructuredEvent): void {
+    registerEvent(eventType: StructuredEvent): this {
       this.eventRegistry.set(eventType.name, eventType);
+      return this;
+    }
+
+    unregisterEvent(name: string): this {
+      this.eventRegistry.delete(name);
+      return this;
     }
 
     resolveActiveEvents(events?: (string | StructuredEvent)[]): StructuredEvent[] {

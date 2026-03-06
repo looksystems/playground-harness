@@ -14,7 +14,7 @@ class TestEmitsEvents:
         obj = EventEmitter()
         et = EventType(name="test", description="a test", schema={})
         obj.register_event(et)
-        assert "test" in obj._event_registry
+        assert "test" in obj.events
 
     def test_default_events(self):
         obj = EventEmitter()

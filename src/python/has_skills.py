@@ -6,8 +6,9 @@ import logging
 import re
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence, TypeVar
+from typing import Any, Callable, Self, Sequence, TypeVar
 
+from src.python._utils import call_fn, emit_fire_and_forget
 from src.python.has_hooks import HookEvent
 from src.python.has_middleware import BaseMiddleware
 from src.python.uses_tools import ToolDef, _build_param_schema
@@ -145,13 +146,6 @@ class SkillPromptMiddleware(BaseMiddleware):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def _call(fn: Callable, *args: Any) -> Any:
-    result = fn(*args)
-    if inspect.isawaitable(result):
-        return await result
-    return result
-
-
 # ---------------------------------------------------------------------------
 # SkillManager
 # ---------------------------------------------------------------------------
@@ -194,7 +188,7 @@ class SkillManager:
 
         ctx = sk.context
         if ctx is not None:
-            await _call(sk.teardown, ctx)
+            await call_fn(sk.teardown, ctx)
 
         # Remove tools
         for tool_name in self._skill_tools.pop(skill_name, []):
@@ -202,20 +196,14 @@ class SkillManager:
                 self._agent.unregister_tool(tool_name)
 
         # Remove middleware
-        if hasattr(self._agent, "_middleware"):
+        if hasattr(self._agent, "remove_middleware"):
             for mw in self._skill_middleware.pop(skill_name, []):
-                try:
-                    self._agent._middleware.remove(mw)
-                except ValueError:
-                    pass
+                self._agent.remove_middleware(mw)
 
         # Remove hooks
-        if hasattr(self._agent, "_hooks"):
+        if hasattr(self._agent, "off"):
             for event, cb in self._skill_hooks.pop(skill_name, []):
-                try:
-                    self._agent._hooks[event].remove(cb)
-                except (ValueError, KeyError):
-                    pass
+                self._agent.off(event, cb)
 
         # Remove commands
         for cmd_name in self._skill_commands.pop(skill_name, []):
@@ -239,7 +227,7 @@ class SkillManager:
             ctx = sk.context
             if ctx is not None:
                 try:
-                    await _call(sk.teardown, ctx)
+                    await call_fn(sk.teardown, ctx)
                 except Exception as exc:
                     logger.warning("Skill %r teardown error: %s", name, exc)
         self._skills.clear()
@@ -248,11 +236,8 @@ class SkillManager:
         self._skill_middleware.clear()
         self._skill_hooks.clear()
         self._skill_commands.clear()
-        if self._prompt_mw is not None and hasattr(self._agent, "_middleware"):
-            try:
-                self._agent._middleware.remove(self._prompt_mw)
-            except ValueError:
-                pass
+        if self._prompt_mw is not None and hasattr(self._agent, "remove_middleware"):
+            self._agent.remove_middleware(self._prompt_mw)
             self._prompt_mw = None
 
     # -- internals ---------------------------------------------------------
@@ -265,7 +250,7 @@ class SkillManager:
         )
         skill._context = ctx  # type: ignore[attr-defined]
 
-        await _call(skill.setup, ctx)
+        await call_fn(skill.setup, ctx)
 
         # Register tools
         tool_names: list[str] = []
@@ -327,20 +312,22 @@ class SkillManager:
 
     def _rebuild_prompt_middleware(self) -> None:
         """Replace the prompt middleware with one reflecting current skills."""
-        if hasattr(self._agent, "_middleware"):
-            # Remove old
-            if self._prompt_mw is not None:
-                try:
-                    self._agent._middleware.remove(self._prompt_mw)
-                except ValueError:
-                    pass
+        if not hasattr(self._agent, "use"):
+            return
 
-            active = [self._skills[n] for n in self._mounted_order if n in self._skills]
-            if active:
-                self._prompt_mw = SkillPromptMiddleware(active)
-                self._agent._middleware.insert(0, self._prompt_mw)
+        # Remove old
+        if self._prompt_mw is not None and hasattr(self._agent, "remove_middleware"):
+            self._agent.remove_middleware(self._prompt_mw)
+
+        active = [self._skills[n] for n in self._mounted_order if n in self._skills]
+        if active:
+            self._prompt_mw = SkillPromptMiddleware(active)
+            if hasattr(self._agent, "_prepend_middleware"):
+                self._agent._prepend_middleware(self._prompt_mw)
             else:
-                self._prompt_mw = None
+                self._agent.use(self._prompt_mw)
+        else:
+            self._prompt_mw = None
 
 
 # ---------------------------------------------------------------------------
@@ -354,33 +341,26 @@ class HasSkills:
         if not hasattr(self, "_skill_manager"):
             self._skill_manager = SkillManager(self)
 
-    def _emit_fire_and_forget(self, event: HookEvent, *args: Any) -> None:
-        if not hasattr(self, "_emit"):
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._emit(event, *args))
-        except RuntimeError:
-            pass
-
     @property
     def skills(self) -> dict[str, Skill]:
         self._ensure_has_skills()
         return self._skill_manager.skills
 
-    async def mount(self, skill: Skill, config: dict[str, Any] | None = None) -> None:
+    async def mount(self, skill: Skill, config: dict[str, Any] | None = None) -> Self:
         """Mount a skill onto this agent."""
         self._ensure_has_skills()
         await self._skill_manager.mount(skill, config)
-        self._emit_fire_and_forget(HookEvent.SKILL_SETUP, skill.name)
-        self._emit_fire_and_forget(HookEvent.SKILL_MOUNT, skill.name)
+        emit_fire_and_forget(self, HookEvent.SKILL_SETUP, skill.name)
+        emit_fire_and_forget(self, HookEvent.SKILL_MOUNT, skill.name)
+        return self
 
-    async def unmount(self, name: str) -> None:
+    async def unmount(self, name: str) -> Self:
         """Unmount a skill by name."""
         self._ensure_has_skills()
-        self._emit_fire_and_forget(HookEvent.SKILL_TEARDOWN, name)
+        emit_fire_and_forget(self, HookEvent.SKILL_TEARDOWN, name)
         await self._skill_manager.unmount(name)
-        self._emit_fire_and_forget(HookEvent.SKILL_UNMOUNT, name)
+        emit_fire_and_forget(self, HookEvent.SKILL_UNMOUNT, name)
+        return self
 
     async def shutdown_skills(self) -> None:
         """Teardown all mounted skills."""

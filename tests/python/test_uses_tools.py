@@ -21,7 +21,7 @@ class TestUsesTools:
     def test_register_decorated_tool(self):
         obj = ToolUser()
         obj.register_tool(add)
-        assert "add" in obj._tools
+        assert "add" in obj.tools
 
     def test_register_tooldef(self):
         obj = ToolUser()
@@ -32,7 +32,7 @@ class TestUsesTools:
             parameters={"type": "object", "properties": {"x": {"type": "integer"}}},
         )
         obj.register_tool(td)
-        assert "custom" in obj._tools
+        assert "custom" in obj.tools
 
     def test_tools_schema(self):
         obj = ToolUser()

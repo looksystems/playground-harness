@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from src.python.base_agent import BaseAgent
 from src.python.has_hooks import HasHooks
 from src.python.has_middleware import HasMiddleware
@@ -8,4 +10,8 @@ from src.python.has_skills import HasSkills
 
 
 class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasSkills):
-    pass
+    @staticmethod
+    def build(model: str) -> AgentBuilder:
+        from src.python.agent_builder import AgentBuilder
+
+        return AgentBuilder(model)

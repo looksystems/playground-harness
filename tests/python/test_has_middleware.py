@@ -30,7 +30,7 @@ class TestHasMiddleware:
         obj = MiddlewareUser()
         mw = UppercaseMiddleware()
         obj.use(mw)
-        assert len(obj._middleware) == 1
+        assert len(obj.middleware) == 1
 
     def test_run_pre_transforms_messages(self):
         obj = MiddlewareUser()

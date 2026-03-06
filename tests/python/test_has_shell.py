@@ -71,12 +71,12 @@ class TestHasShellWithTools:
         obj = ShellWithTools()
         # Trigger shell init which should auto-register the tool
         _ = obj.shell
-        assert "exec" in obj._tools
+        assert "exec" in obj.tools
 
     def test_exec_tool_works(self):
         obj = ShellWithTools()
         obj.fs.write("/test.txt", "hello\n")
-        tool_def = obj._tools["exec"]
+        tool_def = obj.tools["exec"]
         result = asyncio.run(tool_def.function({"command": "cat /test.txt"}))
         assert "hello" in result
 

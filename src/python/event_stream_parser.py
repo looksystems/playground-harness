@@ -31,6 +31,9 @@ class EventType:
     streaming: StreamConfig = field(default_factory=StreamConfig)
 
 
+StructuredEvent = EventType
+
+
 class _ParserState(Enum):
     TEXT = auto()
     EVENT_BODY = auto()

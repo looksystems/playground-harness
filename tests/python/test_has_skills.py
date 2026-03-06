@@ -314,23 +314,23 @@ class TestSkillsWithTools:
         agent = SkillsWithTools()
         sk = MathSkill()
         await agent.mount(sk)
-        assert "add" in agent._tools
+        assert "add" in agent.tools
 
     @pytest.mark.asyncio
     async def test_unmount_removes_tools(self):
         agent = SkillsWithTools()
         sk = MathSkill()
         await agent.mount(sk)
-        assert "add" in agent._tools
+        assert "add" in agent.tools
         await agent.unmount("math")
-        assert "add" not in agent._tools
+        assert "add" not in agent.tools
 
     @pytest.mark.asyncio
     async def test_tool_is_functional(self):
         agent = SkillsWithTools()
         sk = MathSkill()
         await agent.mount(sk)
-        td = agent._tools["add"]
+        td = agent.tools["add"]
         result = td.function(a=3, b=4)
         assert result == 7
 
@@ -338,7 +338,7 @@ class TestSkillsWithTools:
     async def test_shutdown_removes_tools(self):
         agent = SkillsWithTools()
         await agent.mount(MathSkill())
-        assert "add" in agent._tools
+        assert "add" in agent.tools
         await agent.shutdown_skills()
         # After shutdown, tools still in _tools dict because shutdown only
         # clears internal state; check skills are gone
@@ -543,7 +543,7 @@ class TestSkillInstructions:
         agent.__init_has_hooks__()
         await agent.mount(InstructionSkill())
         # The prompt middleware should be in the agent's middleware list
-        found = any(isinstance(mw, SkillPromptMiddleware) for mw in agent._middleware)
+        found = any(isinstance(mw, SkillPromptMiddleware) for mw in agent.middleware)
         assert found
 
     @pytest.mark.asyncio
@@ -553,7 +553,7 @@ class TestSkillInstructions:
         agent.__init_has_hooks__()
         await agent.mount(InstructionSkill())
         await agent.unmount("instruction")
-        found = any(isinstance(mw, SkillPromptMiddleware) for mw in agent._middleware)
+        found = any(isinstance(mw, SkillPromptMiddleware) for mw in agent.middleware)
         assert not found
 
 
@@ -571,7 +571,7 @@ class TestSkillMiddlewareAndHooks:
         await agent.mount(sk)
         found = any(
             isinstance(mw, _TagMiddleware) and mw.tag == "skill_mw"
-            for mw in agent._middleware
+            for mw in agent.middleware
         )
         assert found
 
@@ -585,7 +585,7 @@ class TestSkillMiddlewareAndHooks:
         await agent.unmount("middleware_providing")
         found = any(
             isinstance(mw, _TagMiddleware) and mw.tag == "skill_mw"
-            for mw in agent._middleware
+            for mw in agent.middleware
         )
         assert not found
 

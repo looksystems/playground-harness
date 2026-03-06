@@ -8,13 +8,6 @@ trait HasShell
 {
     private ?Shell $shell = null;
 
-    private function tryEmitFromShell(HookEvent $event, mixed ...$args): void
-    {
-        if (method_exists($this, 'emit')) {
-            $this->emit($event, ...$args);
-        }
-    }
-
     /**
      * Initialize the HasShell trait.
      *
@@ -121,25 +114,27 @@ trait HasShell
 
     public function execCommand(string $command): ExecResult
     {
-        $this->tryEmitFromShell(HookEvent::ShellCall, $command);
+        Helpers::tryEmit($this,HookEvent::ShellCall, $command);
         $oldCwd = $this->shell()->cwd;
         $result = $this->shell()->exec($command);
-        $this->tryEmitFromShell(HookEvent::ShellResult, $command, $result);
+        Helpers::tryEmit($this,HookEvent::ShellResult, $command, $result);
         if ($this->shell()->cwd !== $oldCwd) {
-            $this->tryEmitFromShell(HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
+            Helpers::tryEmit($this,HookEvent::ShellCwd, $oldCwd, $this->shell()->cwd);
         }
         return $result;
     }
 
-    public function registerCommand(string $name, \Closure $handler): void
+    public function registerCommand(string $name, \Closure $handler): static
     {
         $this->shell()->registerCommand($name, $handler);
-        $this->tryEmitFromShell(HookEvent::CommandRegister, $name);
+        Helpers::tryEmit($this, HookEvent::CommandRegister, $name);
+        return $this;
     }
 
-    public function unregisterCommand(string $name): void
+    public function unregisterCommand(string $name): static
     {
         $this->shell()->unregisterCommand($name);
-        $this->tryEmitFromShell(HookEvent::CommandUnregister, $name);
+        Helpers::tryEmit($this, HookEvent::CommandUnregister, $name);
+        return $this;
     }
 }

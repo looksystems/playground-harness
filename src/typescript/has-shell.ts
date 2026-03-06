@@ -5,6 +5,7 @@
 import { VirtualFS } from "./virtual-fs.js";
 import { Shell, ShellRegistry, ExecResult, CmdHandler } from "./shell.js";
 import { HookEvent } from "./has-hooks.js";
+import { tryEmit } from "./utils.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -19,12 +20,6 @@ export interface HasShellOptions {
 export function HasShell<TBase extends Constructor>(Base: TBase) {
   return class extends Base {
     _shell?: Shell;
-
-    private tryEmit(event: HookEvent, ...args: any[]): void {
-      if (typeof (this as any).emit === "function") {
-        void (this as any).emit(event, ...args);
-      }
-    }
 
     initHasShell(opts?: HasShellOptions): void {
       const options = opts ?? {};
@@ -104,24 +99,26 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
     }
 
     exec(command: string): ExecResult {
-      this.tryEmit(HookEvent.SHELL_CALL, command);
+      tryEmit(this, HookEvent.SHELL_CALL, command);
       const oldCwd = this.shell.cwd;
       const result = this.shell.exec(command);
-      this.tryEmit(HookEvent.SHELL_RESULT, command, result);
+      tryEmit(this, HookEvent.SHELL_RESULT, command, result);
       if (this.shell.cwd !== oldCwd) {
-        this.tryEmit(HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
+        tryEmit(this, HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
       }
       return result;
     }
 
-    registerCommand(name: string, handler: CmdHandler): void {
+    registerCommand(name: string, handler: CmdHandler): this {
       this.shell.registerCommand(name, handler);
-      this.tryEmit(HookEvent.COMMAND_REGISTER, name);
+      tryEmit(this, HookEvent.COMMAND_REGISTER, name);
+      return this;
     }
 
-    unregisterCommand(name: string): void {
+    unregisterCommand(name: string): this {
       this.shell.unregisterCommand(name);
-      this.tryEmit(HookEvent.COMMAND_UNREGISTER, name);
+      tryEmit(this, HookEvent.COMMAND_UNREGISTER, name);
+      return this;
     }
   };
 }

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Self
 
-from src.python.event_stream_parser import EventType, StreamConfig
+from src.python.event_stream_parser import EventType, StructuredEvent, StreamConfig
 from src.python.message_bus import MessageBus
 
 
@@ -17,9 +17,20 @@ class EmitsEvents:
         if not hasattr(self, "_event_registry"):
             self.__init_emits_events__()
 
-    def register_event(self, event_type: EventType) -> None:
+    def register_event(self, event_type: EventType) -> Self:
         self._ensure_events_init()
         self._event_registry[event_type.name] = event_type
+        return self
+
+    def unregister_event(self, name: str) -> Self:
+        self._ensure_events_init()
+        self._event_registry.pop(name, None)
+        return self
+
+    @property
+    def events(self) -> dict[str, EventType]:
+        self._ensure_events_init()
+        return dict(self._event_registry)
 
     def _resolve_active_events(
         self, events: list[str | EventType] | None = None

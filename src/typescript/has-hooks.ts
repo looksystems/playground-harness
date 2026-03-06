@@ -44,6 +44,15 @@ export function HasHooks<TBase extends Constructor>(Base: TBase) {
       };
     }
 
+    off(event: HookEvent, callback: (...args: any[]) => any): this {
+      const cbs = this.hooks.get(event);
+      if (cbs) {
+        const idx = cbs.indexOf(callback);
+        if (idx !== -1) cbs.splice(idx, 1);
+      }
+      return this;
+    }
+
     async emit(event: HookEvent, ...args: any[]): Promise<void> {
       const callbacks = this.hooks.get(event);
       if (!callbacks || callbacks.length === 0) {

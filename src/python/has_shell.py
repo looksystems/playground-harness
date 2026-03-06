@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Self
 
+from src.python._utils import emit_fire_and_forget
 from src.python.has_hooks import HookEvent
 from src.python.virtual_fs import VirtualFS
 from src.python.shell import Shell, ExecResult, ShellRegistry
@@ -33,21 +33,12 @@ class HasShell:
 
         if hasattr(self, "_emit"):
             self._shell.on_not_found = lambda cmd_name: (
-                self._emit_fire_and_forget(HookEvent.SHELL_NOT_FOUND, cmd_name)
+                emit_fire_and_forget(self, HookEvent.SHELL_NOT_FOUND, cmd_name)
             )
 
         # Auto-register exec tool if UsesTools is composed
         if hasattr(self, "register_tool"):
             self._register_shell_tool()
-
-    def _emit_fire_and_forget(self, event: HookEvent, *args: Any) -> None:
-        if not hasattr(self, "_emit"):
-            return
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._emit(event, *args))
-        except RuntimeError:
-            pass
 
     def _ensure_has_shell(self) -> None:
         if not hasattr(self, "_shell"):
@@ -105,18 +96,20 @@ class HasShell:
         return self.shell.fs
 
     def exec(self, command: str) -> ExecResult:
-        self._emit_fire_and_forget(HookEvent.SHELL_CALL, command)
+        emit_fire_and_forget(self, HookEvent.SHELL_CALL, command)
         old_cwd = self.shell.cwd
         result = self.shell.exec(command)
-        self._emit_fire_and_forget(HookEvent.SHELL_RESULT, command, result)
+        emit_fire_and_forget(self, HookEvent.SHELL_RESULT, command, result)
         if self.shell.cwd != old_cwd:
-            self._emit_fire_and_forget(HookEvent.SHELL_CWD, old_cwd, self.shell.cwd)
+            emit_fire_and_forget(self, HookEvent.SHELL_CWD, old_cwd, self.shell.cwd)
         return result
 
-    def register_command(self, name: str, handler: Callable) -> None:
+    def register_command(self, name: str, handler: Callable) -> Self:
         self.shell.register_command(name, handler)
-        self._emit_fire_and_forget(HookEvent.COMMAND_REGISTER, name)
+        emit_fire_and_forget(self, HookEvent.COMMAND_REGISTER, name)
+        return self
 
-    def unregister_command(self, name: str) -> None:
+    def unregister_command(self, name: str) -> Self:
         self.shell.unregister_command(name)
-        self._emit_fire_and_forget(HookEvent.COMMAND_UNREGISTER, name)
+        emit_fire_and_forget(self, HookEvent.COMMAND_UNREGISTER, name)
+        return self
