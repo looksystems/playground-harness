@@ -216,7 +216,7 @@ class BashkitNativeDriver(ShellDriver):
         for name, handler in self._commands.items():
             c_cb = new_driver._make_c_callback(name, handler)
             new_driver._c_callbacks[name] = c_cb
-            self._lib.bashkit_register_command(
+            new_driver._lib.bashkit_register_command(
                 new_driver._ctx, name.encode("utf-8"), c_cb, None,
             )
         return new_driver
