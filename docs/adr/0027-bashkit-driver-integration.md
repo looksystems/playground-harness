@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Phase 2 Implemented (IPC driver complete across Python, TypeScript, PHP)
 
 ## Context
 

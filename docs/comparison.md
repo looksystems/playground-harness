@@ -18,8 +18,10 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 | **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` |
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
-| **Test Count** | 313 | 344 | 312 |
+| **Test Count** | 342 | 374 | 339 |
 | **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` |
+| **Bashkit IPC Driver** | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) |
+| **Bashkit Resolver** | `BashkitDriver.resolve()` → auto-select native/IPC | `BashkitDriver.resolve()` → auto-select native/IPC | `BashkitDriver::resolve()` → auto-select native/IPC |
 | **FS Driver** | `FilesystemDriver` (ABC) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` |
 | **Driver Factory** | `ShellDriverFactory` (class methods) | `ShellDriverFactory` (static methods) | `ShellDriverFactory` (static methods) |
 | **Driver Selection** | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `->driver()` |
