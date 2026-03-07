@@ -119,7 +119,7 @@ class BashkitIPCDriver(ShellDriver):
                 cb_id = response.get("id")
                 params = response.get("params", {})
                 name = params.get("name", "")
-                args = params.get("args", "")
+                args = params.get("args", [])
                 stdin = params.get("stdin", "")
 
                 if name in self._commands:

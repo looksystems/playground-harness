@@ -257,12 +257,12 @@ class TestBashkitIPCDriverCallbacks:
 
     def test_invoke_command_callback_during_exec(self):
         driver, fake = make_driver()
-        driver.register_command("greet", lambda args, stdin="": f"hello {args}")
+        driver.register_command("greet", lambda args, stdin="": f"hello {' '.join(args)}")
 
         # During exec, bashkit sends an invoke_command callback, then the final result
         fake.enqueue_response({
             "method": "invoke_command",
-            "params": {"name": "greet", "args": "world"},
+            "params": {"name": "greet", "args": ["world"]},
             "id": 100,
         })
         fake.enqueue_response({
@@ -340,7 +340,7 @@ class TestBashkitIPCDriverCallbacks:
 
         fake.enqueue_response({
             "method": "invoke_command",
-            "params": {"name": "mycmd", "args": "a b", "stdin": "hello"},
+            "params": {"name": "mycmd", "args": ["a", "b"], "stdin": "hello"},
             "id": 200,
         })
         fake.enqueue_response({
@@ -354,7 +354,7 @@ class TestBashkitIPCDriverCallbacks:
         })
 
         driver.exec("mycmd a b")
-        assert received["args"] == "a b"
+        assert received["args"] == ["a", "b"]
         assert received["stdin"] == "hello"
 
     def test_callback_handler_exception_returns_error(self):
