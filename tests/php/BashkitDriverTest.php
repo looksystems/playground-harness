@@ -6,6 +6,7 @@ namespace AgentHarness\Tests;
 
 use AgentHarness\BashkitDriver;
 use AgentHarness\BashkitIPCDriver;
+use AgentHarness\BashkitNativeDriver;
 use AgentHarness\ShellDriverFactory;
 use AgentHarness\ShellDriverInterface;
 use PHPUnit\Framework\TestCase;
@@ -49,7 +50,35 @@ class BashkitDriverTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('bashkit not found');
 
-        BashkitDriver::resolve(cliPath: null);
+        BashkitDriver::resolve(nativeLib: null, cliPath: null);
+    }
+
+    public function testResolvePrefersNativeOverIpc(): void
+    {
+        $mockLib = new class {
+            public function bashkit_create(?string $c): object { return new \stdClass(); }
+            public function bashkit_destroy(object $c): void {}
+            public function bashkit_exec(object $c, string $r): string { return '{}'; }
+            public function bashkit_register_command(object $c, string $n, \Closure $cb, mixed $u): void {}
+            public function bashkit_unregister_command(object $c, string $n): void {}
+            public function bashkit_free_string(string $s): void {}
+        };
+        $driver = BashkitDriver::resolve(nativeLib: $mockLib);
+        $this->assertInstanceOf(BashkitNativeDriver::class, $driver);
+    }
+
+    public function testResolveFallsBackToIpc(): void
+    {
+        $fake = new BashkitDriverFakeProcess();
+        $driver = BashkitDriver::resolve(nativeLib: null, cliPath: '/usr/bin/bashkit-cli', processOverride: $fake);
+        $this->assertInstanceOf(BashkitIPCDriver::class, $driver);
+    }
+
+    public function testResolveThrowsWhenNothingAvailable(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('bashkit not found');
+        BashkitDriver::resolve(nativeLib: null, cliPath: null);
     }
 
     // -----------------------------------------------------------------------

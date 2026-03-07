@@ -7,6 +7,7 @@ from typing import Any
 
 from src.python.drivers import ShellDriver, ShellDriverFactory
 from src.python.bashkit_ipc_driver import BashkitIPCDriver
+from src.python.bashkit_native_driver import BashkitNativeDriver
 
 
 class BashkitDriver:
@@ -14,12 +15,18 @@ class BashkitDriver:
 
     @staticmethod
     def resolve(**kwargs: Any) -> ShellDriver:
-        """Return a bashkit ShellDriver, preferring native (Phase 3) over IPC."""
-        # Phase 3: check for native extension first (future)
+        """Return a bashkit ShellDriver, preferring native over IPC."""
+        # 1. Try native FFI
+        lib_override = kwargs.pop("lib_override", None)
+        if lib_override is not None:
+            return BashkitNativeDriver(lib_override=lib_override, **kwargs)
+        if BashkitNativeDriver.find_library() is not None:
+            return BashkitNativeDriver(**kwargs)
+        # 2. Fall back to IPC
         if shutil.which("bashkit-cli"):
             return BashkitIPCDriver(**kwargs)
         raise RuntimeError(
-            "bashkit not found — install bashkit-cli or the native extension"
+            "bashkit not found — install libashkit, bashkit-cli, or the native extension"
         )
 
 
