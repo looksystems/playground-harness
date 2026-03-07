@@ -19,7 +19,7 @@ The virtual shell and filesystem are implemented independently in Python, TypeSc
 
 - Replacing the existing shell implementations (they become the "builtin" driver)
 - Conformance testing between drivers (different drivers, different capabilities)
-- Building the bashkit binding crates (that's a separate effort)
+- Building per-language Rust binding crates (replaced by shared C library FFI approach)
 
 ---
 
@@ -122,43 +122,45 @@ BashkitDriver.resolve(fs):
         raise "bashkit not found — install the extension or binary"
 ```
 
-#### Native Extension Path
+#### Native FFI Path
 
-Uses per-language binding libraries to call bashkit in-process:
+All three languages call bashkit through a single shared C library (`libashkit.so`/`libashkit.dylib`/`bashkit.dll`) using each language's built-in FFI mechanism:
 
-| Language | Binding | Callable storage | GIL/thread handling |
-|----------|---------|-----------------|---------------------|
-| Python | PyO3 | `Py<PyAny>` | `Python::attach()` to acquire GIL |
-| TypeScript | napi-rs | `ThreadsafeFunction` | Schedules on Node event loop |
-| PHP | ext-php-rs | `PhpClosure` | Single-threaded, no concerns |
+| Language | FFI Mechanism | Callback Support | Library Loading |
+|----------|--------------|-----------------|----------------|
+| Python | `ctypes` (stdlib) | `ctypes.CFUNCTYPE` | `ctypes.CDLL` |
+| TypeScript | `ffi-napi` + `ref-napi` | `ffi.Callback` | `ffi.Library()` |
+| PHP | `FFI` (built-in 7.4+) | `FFI` closure binding | `FFI::cdef()` |
+
+**C API surface:**
+
+```c
+typedef struct bashkit_ctx bashkit_t;
+typedef const char* (*bashkit_command_cb)(const char* args_json, void* userdata);
+
+bashkit_t*   bashkit_create(const char* config_json);
+void         bashkit_destroy(bashkit_t* ctx);
+const char*  bashkit_exec(bashkit_t* ctx, const char* request_json);
+void         bashkit_register_command(bashkit_t* ctx, const char* name, bashkit_command_cb cb, void* userdata);
+void         bashkit_unregister_command(bashkit_t* ctx, const char* name);
+void         bashkit_free_string(const char* str);
+```
 
 **VFS sync (host-owns model):**
 
 ```
 exec(command):
-    1. Snapshot host FilesystemDriver → serialize all files
-    2. Load snapshot into bashkit's InMemoryFs
+    1. Snapshot host FilesystemDriver → serialize all files as dict/object
+    2. Send snapshot in exec request JSON
     3. Run command in bashkit
-    4. Diff bashkit's FS after execution
+    4. Receive fs_changes (created/deleted) in response
     5. Apply changes back to host FilesystemDriver
     6. Return ExecResult
 ```
 
 **Custom command callbacks (native):**
 
-```rust
-// Each binding crate wraps host-language callables into this signature:
-type CommandCallback = Box<dyn Fn(&ToolArgs) -> Result<String, String> + Send + Sync>;
-
-// Python example:
-let callback = move |args: &ToolArgs| -> Result<String, String> {
-    Python::attach(|py| {
-        let params = json_to_py(py, &args.params);
-        let result = py_cb.call1(py, (params, args.stdin))?;
-        result.extract::<String>(py)
-    })
-};
-```
+Each language wraps host-language callables into a C function pointer with the `(args_json, userdata)` signature. The callback receives `{"name":"...","args":[...],"stdin":"..."}` as JSON and returns stdout as a string. Python uses `ctypes.CFUNCTYPE` with prevented GC via stored references, TypeScript uses `ffi.Callback`, and PHP uses `FFI` closure binding.
 
 #### IPC Fallback Path
 
@@ -245,9 +247,9 @@ ShellDriverFactory.default = "bashkit"
 ┌──────────────┐  ┌─────────────────────────┐
 │ BuiltinShell │  │ BashkitDriver.resolve() │
 │ BuiltinFS    │  │                         │
-│              │  │  ┌─ native ext? ──────┐ │
-│ Current impl │  │  │  PyO3 / napi-rs /  │ │
-│ No changes   │  │  │  ext-php-rs        │ │
+│              │  │  ┌─ native FFI? ──────┐ │
+│ Current impl │  │  │  ctypes / ffi-napi │ │
+│ No changes   │  │  │  / PHP FFI        │ │
 │              │  │  └────────────────────┘ │
 │              │  │                         │
 │              │  │  ┌─ fallback ─────────┐ │
@@ -340,14 +342,17 @@ Define `FilesystemDriver` and `ShellDriver` interfaces in all three languages. W
 
 Build `BashkitIPCDriver` in all three languages. Requires `bashkit-cli` with a `--jsonrpc` mode (may need contributing upstream or forking). Includes VFS sync (snapshot in request, changes in response) and bidirectional JSON-RPC for custom command callbacks.
 
-### Phase 3: Bashkit Native Drivers
+### Phase 3: Bashkit Native Drivers (Complete)
 
-Build per-language binding crates:
-- `bashkit-node` (napi-rs) — ~300 lines
-- `bashkit-php` (ext-php-rs) — ~300 lines
-- Python bindings already exist via `bashkit-python`
+Instead of per-language binding crates (PyO3, napi-rs, ext-php-rs), we chose a shared C library approach: a single `libashkit` shared library (`libashkit.so`/`libashkit.dylib`/`bashkit.dll`) called via each language's built-in FFI mechanism:
 
-Build `BashkitNativeDriver` wrappers in each language that use the binding when available, with automatic fallback to IPC.
+- **Python**: `ctypes` (stdlib) — `ctypes.CFUNCTYPE` for callbacks, `ctypes.CDLL` for loading
+- **TypeScript**: `ffi-napi` + `ref-napi` — `ffi.Callback` for callbacks, `ffi.Library()` for loading
+- **PHP**: `FFI` (built-in 7.4+) — `FFI` closure binding for callbacks, `FFI::cdef()` for loading
+
+This eliminates the need to build and maintain three separate Rust crates — one shared library serves all three languages.
+
+`BashkitNativeDriver` is implemented in all three languages with: library discovery (`BASHKIT_LIB_PATH` env var → platform library paths → standard paths), VFS snapshot sync (host-owns model), C callback wrapping for custom commands, and `clone()` support. `BashkitDriver.resolve()` now prefers native FFI over IPC fallback.
 
 ---
 
