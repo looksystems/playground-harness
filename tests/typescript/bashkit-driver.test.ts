@@ -3,25 +3,16 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { BashkitDriver, registerBashkitDriver } from "../../src/typescript/bashkit-driver.js";
-import { BashkitIPCDriver } from "../../src/typescript/bashkit-ipc-driver.js";
-import { BashkitNativeDriver } from "../../src/typescript/bashkit-native-driver.js";
+import { BashkitCLIDriver } from "../../src/typescript/bashkit-cli-driver.js";
 import { ShellDriverFactory } from "../../src/typescript/drivers.js";
-
-// ---------------------------------------------------------------------------
-// FakeProcess: minimal stub so BashkitIPCDriver doesn't throw
-// ---------------------------------------------------------------------------
-
-function fakeSpawn() {
-  return {
-    stdin: { write(_data: string) {} },
-    stdout: { readline() { return ""; } },
-    kill() {},
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+function fakeExecOverride(cmd: string) {
+  return { stdout: "", stderr: "", exitCode: 0 };
+}
 
 describe("BashkitDriver", () => {
   beforeEach(() => {
@@ -33,29 +24,16 @@ describe("BashkitDriver", () => {
   });
 
   describe("resolve()", () => {
-    it("returns BashkitIPCDriver when CLI is available", () => {
+    it("returns BashkitCLIDriver when _execOverride provided", () => {
       const driver = BashkitDriver.resolve({
-        _nativeAvailable: false,
-        _cliAvailable: true,
-        _spawnOverride: fakeSpawn,
+        _execOverride: fakeExecOverride,
       });
-      expect(driver).toBeInstanceOf(BashkitIPCDriver);
+      expect(driver).toBeInstanceOf(BashkitCLIDriver);
     });
 
-    it("throws when CLI is not available", () => {
-      expect(() => BashkitDriver.resolve({
-        _nativeAvailable: false,
-        _cliAvailable: false,
-      })).toThrow(
-        "bashkit not found"
-      );
-    });
-
-    it("passes options through to IPC driver", () => {
+    it("passes options through to CLI driver", () => {
       const driver = BashkitDriver.resolve({
-        _nativeAvailable: false,
-        _cliAvailable: true,
-        _spawnOverride: fakeSpawn,
+        _execOverride: fakeExecOverride,
         cwd: "/tmp",
         env: { FOO: "bar" },
       });
@@ -63,60 +41,27 @@ describe("BashkitDriver", () => {
       expect(driver.env).toEqual({ FOO: "bar" });
     });
 
-    it("prefers native over IPC when library available", () => {
-      const mockLib = {
-        bashkit_create: () => ({}),
-        bashkit_destroy: () => {},
-        bashkit_exec: () => "{}",
-        bashkit_register_command: () => {},
-        bashkit_unregister_command: () => {},
-        bashkit_free_string: () => {},
-      };
-      const driver = BashkitDriver.resolve({
-        _nativeAvailable: true,
-        _cliAvailable: true,
-        _libOverride: mockLib,
-      });
-      expect(driver).toBeInstanceOf(BashkitNativeDriver);
-    });
-
-    it("falls back to IPC when native unavailable", () => {
-      const driver = BashkitDriver.resolve({
-        _nativeAvailable: false,
-        _cliAvailable: true,
-        _spawnOverride: fakeSpawn,
-      });
-      expect(driver).toBeInstanceOf(BashkitIPCDriver);
-    });
-
-    it("throws when neither native nor IPC available", () => {
-      expect(() => BashkitDriver.resolve({
-        _nativeAvailable: false,
-        _cliAvailable: false,
-      })).toThrow("bashkit not found");
+    it("throws when bashkit is not available and no override", () => {
+      // In test environment, bashkit binary is not installed
+      expect(() => BashkitDriver.resolve()).toThrow("bashkit not found");
     });
   });
 
   describe("registerBashkitDriver()", () => {
     it("adds bashkit to factory registry", () => {
       registerBashkitDriver();
-      // After registration, create should throw RuntimeError, not "not registered"
-      expect(() => ShellDriverFactory.create("bashkit", {
-        _nativeAvailable: false,
-        _cliAvailable: false,
-      } as any)).toThrow(
+      // After registration, create should throw "bashkit not found", not "not registered"
+      expect(() => ShellDriverFactory.create("bashkit")).toThrow(
         "bashkit not found"
       );
     });
 
-    it("factory.create returns IPC driver with CLI available", () => {
+    it("factory.create returns BashkitCLIDriver with _execOverride", () => {
       registerBashkitDriver();
       const driver = ShellDriverFactory.create("bashkit", {
-        _nativeAvailable: false,
-        _cliAvailable: true,
-        _spawnOverride: fakeSpawn,
+        _execOverride: fakeExecOverride,
       } as any);
-      expect(driver).toBeInstanceOf(BashkitIPCDriver);
+      expect(driver).toBeInstanceOf(BashkitCLIDriver);
     });
 
     it("factory.create without registration throws 'not registered'", () => {
@@ -125,14 +70,11 @@ describe("BashkitDriver", () => {
       );
     });
 
-    it("factory.create after register with no CLI throws 'bashkit not found'", () => {
+    it("factory.create after register without bashkit throws 'bashkit not found'", () => {
       registerBashkitDriver();
-      expect(() =>
-        ShellDriverFactory.create("bashkit", {
-          _nativeAvailable: false,
-          _cliAvailable: false,
-        } as any)
-      ).toThrow("bashkit not found");
+      expect(() => ShellDriverFactory.create("bashkit")).toThrow(
+        "bashkit not found"
+      );
     });
   });
 });

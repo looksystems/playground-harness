@@ -4,21 +4,11 @@ declare(strict_types=1);
 
 namespace AgentHarness\Tests;
 
+use AgentHarness\BashkitCLIDriver;
 use AgentHarness\BashkitDriver;
-use AgentHarness\BashkitIPCDriver;
-use AgentHarness\BashkitNativeDriver;
 use AgentHarness\ShellDriverFactory;
 use AgentHarness\ShellDriverInterface;
 use PHPUnit\Framework\TestCase;
-
-/**
- * Minimal fake process so BashkitIPCDriver doesn't spawn a real process.
- */
-class BashkitDriverFakeProcess
-{
-    public function write(string $data): void {}
-    public function readline(): ?string { return null; }
-}
 
 class BashkitDriverTest extends TestCase
 {
@@ -36,49 +26,27 @@ class BashkitDriverTest extends TestCase
     // resolve()
     // -----------------------------------------------------------------------
 
-    public function testResolveReturnsIPCDriverWhenCliAvailable(): void
+    public function testResolveWithExecOverrideReturnsCLIDriver(): void
     {
-        $fake = new BashkitDriverFakeProcess();
-        $driver = BashkitDriver::resolve(cliPath: '/usr/local/bin/bashkit-cli', processOverride: $fake);
-
-        $this->assertInstanceOf(BashkitIPCDriver::class, $driver);
+        $driver = BashkitDriver::resolve(
+            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        );
+        $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
         $this->assertInstanceOf(ShellDriverInterface::class, $driver);
     }
 
-    public function testResolveThrowsWhenCliNotAvailable(): void
+    public function testResolveThrowsWhenBashkitNotAvailable(): void
     {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('bashkit not found');
 
-        BashkitDriver::resolve(nativeLib: null, cliPath: null);
+        BashkitDriver::resolve(cliPath: null);
     }
 
-    public function testResolvePrefersNativeOverIpc(): void
+    public function testResolveReturnsCLIDriverWhenCliPathProvided(): void
     {
-        $mockLib = new class {
-            public function bashkit_create(?string $c): object { return new \stdClass(); }
-            public function bashkit_destroy(object $c): void {}
-            public function bashkit_exec(object $c, string $r): string { return '{}'; }
-            public function bashkit_register_command(object $c, string $n, \Closure $cb, mixed $u): void {}
-            public function bashkit_unregister_command(object $c, string $n): void {}
-            public function bashkit_free_string(string $s): void {}
-        };
-        $driver = BashkitDriver::resolve(nativeLib: $mockLib);
-        $this->assertInstanceOf(BashkitNativeDriver::class, $driver);
-    }
-
-    public function testResolveFallsBackToIpc(): void
-    {
-        $fake = new BashkitDriverFakeProcess();
-        $driver = BashkitDriver::resolve(nativeLib: null, cliPath: '/usr/bin/bashkit-cli', processOverride: $fake);
-        $this->assertInstanceOf(BashkitIPCDriver::class, $driver);
-    }
-
-    public function testResolveThrowsWhenNothingAvailable(): void
-    {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('bashkit not found');
-        BashkitDriver::resolve(nativeLib: null, cliPath: null);
+        $driver = BashkitDriver::resolve(cliPath: '/usr/local/bin/bashkit');
+        $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
     }
 
     // -----------------------------------------------------------------------
@@ -89,7 +57,7 @@ class BashkitDriverTest extends TestCase
     {
         BashkitDriver::register();
 
-        // After registration, create should throw RuntimeError (not "not registered")
+        // After registration, create should throw "bashkit not found" (not "not registered")
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('bashkit not found');
 

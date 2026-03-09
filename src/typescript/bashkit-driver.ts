@@ -1,5 +1,5 @@
 /**
- * BashkitDriver: auto-resolves native (future Phase 3) vs IPC driver.
+ * BashkitDriver: resolves to BashkitCLIDriver.
  */
 
 import {
@@ -8,49 +8,33 @@ import {
   type ShellDriverOptions,
 } from "./drivers.js";
 import {
-  BashkitIPCDriver,
-  type BashkitIPCDriverOptions,
-} from "./bashkit-ipc-driver.js";
-import {
-  BashkitNativeDriver,
-  type BashkitNativeDriverOptions,
-} from "./bashkit-native-driver.js";
-
-export interface BashkitResolveOptions extends BashkitIPCDriverOptions, BashkitNativeDriverOptions {
-  /** Test override to avoid running `which bashkit-cli` in CI. */
-  _cliAvailable?: boolean;
-  /** Test override to avoid checking for native library in CI. */
-  _nativeAvailable?: boolean;
-}
+  BashkitCLIDriver,
+  type BashkitCLIDriverOptions,
+} from "./bashkit-cli-driver.js";
 
 export class BashkitDriver {
   /**
-   * Return a bashkit ShellDriver, preferring native over IPC.
+   * Return a bashkit ShellDriver backed by the CLI subprocess.
    */
-  static resolve(opts: BashkitResolveOptions = {}): ShellDriver {
-    // 1. Try native FFI
-    if (opts._libOverride) {
-      return new BashkitNativeDriver(opts);
+  static resolve(opts: BashkitCLIDriverOptions = {}): ShellDriver {
+    // If test override provided, use it directly
+    if (opts._execOverride) {
+      return new BashkitCLIDriver(opts);
     }
-    const nativeAvailable = opts._nativeAvailable ?? (BashkitNativeDriver.findLibrary() !== undefined);
-    if (nativeAvailable) {
-      return new BashkitNativeDriver(opts);
+    // Check if bashkit binary is available
+    if (!BashkitDriver._checkCli()) {
+      throw new Error(
+        "bashkit not found — install with: cargo install bashkit-cli"
+      );
     }
-    // 2. Fall back to IPC
-    const cliAvailable = opts._cliAvailable ?? BashkitDriver._checkCli();
-    if (cliAvailable) {
-      return new BashkitIPCDriver(opts);
-    }
-    throw new Error(
-      "bashkit not found — install libashkit, bashkit-cli, or the native extension"
-    );
+    return new BashkitCLIDriver(opts);
   }
 
-  /** Check if bashkit-cli is on PATH. */
+  /** Check if bashkit is on PATH. */
   private static _checkCli(): boolean {
     try {
       const { execSync } = require("child_process");
-      execSync("which bashkit-cli", { stdio: "ignore" });
+      execSync("which bashkit", { stdio: "ignore" });
       return true;
     } catch {
       return false;
@@ -63,6 +47,6 @@ export class BashkitDriver {
  */
 export function registerBashkitDriver(): void {
   ShellDriverFactory.register("bashkit", (opts?: ShellDriverOptions) =>
-    BashkitDriver.resolve(opts as BashkitResolveOptions)
+    BashkitDriver.resolve(opts as BashkitCLIDriverOptions)
   );
 }
