@@ -12,6 +12,14 @@ use PHPUnit\Framework\TestCase;
 
 class BashkitDriverTest extends TestCase
 {
+    private static bool $hasBashkit = false;
+
+    public static function setUpBeforeClass(): void
+    {
+        exec('which bashkit 2>/dev/null', $output, $code);
+        self::$hasBashkit = $code === 0;
+    }
+
     protected function setUp(): void
     {
         ShellDriverFactory::reset();
@@ -37,6 +45,10 @@ class BashkitDriverTest extends TestCase
 
     public function testResolveThrowsWhenBashkitNotAvailable(): void
     {
+        if (self::$hasBashkit) {
+            $this->markTestSkipped('bashkit is installed — cannot test "not found" path');
+        }
+
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('bashkit not found');
 
@@ -49,6 +61,16 @@ class BashkitDriverTest extends TestCase
         $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
     }
 
+    public function testResolveReturnsCLIDriverWhenBashkitInstalled(): void
+    {
+        if (!self::$hasBashkit) {
+            $this->markTestSkipped('bashkit not installed');
+        }
+
+        $driver = BashkitDriver::resolve();
+        $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
+    }
+
     // -----------------------------------------------------------------------
     // register() + factory integration
     // -----------------------------------------------------------------------
@@ -57,11 +79,14 @@ class BashkitDriverTest extends TestCase
     {
         BashkitDriver::register();
 
-        // After registration, create should throw "bashkit not found" (not "not registered")
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('bashkit not found');
-
-        ShellDriverFactory::create('bashkit');
+        if (self::$hasBashkit) {
+            $driver = ShellDriverFactory::create('bashkit');
+            $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
+        } else {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('bashkit not found');
+            ShellDriverFactory::create('bashkit');
+        }
     }
 
     public function testFactoryCreateWithoutRegistrationThrowsNotRegistered(): void
@@ -70,19 +95,5 @@ class BashkitDriverTest extends TestCase
         $this->expectExceptionMessage('not registered');
 
         ShellDriverFactory::create('bashkit');
-    }
-
-    public function testFactoryCreateAfterRegisterThrowsBashkitNotFound(): void
-    {
-        BashkitDriver::register();
-
-        // Should throw "bashkit not found", not "not registered"
-        try {
-            ShellDriverFactory::create('bashkit');
-            $this->fail('Expected RuntimeException');
-        } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('bashkit not found', $e->getMessage());
-            $this->assertStringNotContainsString('not registered', $e->getMessage());
-        }
     }
 }

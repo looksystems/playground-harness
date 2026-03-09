@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any, Callable
 
 from src.python.drivers import ShellDriver, FilesystemDriver, BuiltinFilesystemDriver
@@ -98,10 +99,24 @@ class BashkitPythonDriver(ShellDriver):
         return tool
 
     def _wrap_handler(self, handler: Callable) -> Callable:
-        """Adapt our handler(args, stdin='') to ScriptedTool callback(params, stdin)."""
+        """Adapt our handler(args, stdin='') to ScriptedTool callback(params, stdin).
+
+        ScriptedTool parses --flag value pairs into a dict. Positional args
+        after -- land under the "" key. We flatten all values into a list
+        for handlers that expect (args_list, stdin).
+        """
 
         def wrapper(params: dict, stdin: str | None) -> str:
-            args = params.get("args", [])
+            args: list[str] = []
+            for key, value in params.items():
+                if key == "":
+                    # Positional args after --
+                    if isinstance(value, list):
+                        args.extend(str(v) for v in value)
+                    else:
+                        args.append(str(value))
+                else:
+                    args.extend([f"--{key}", str(value)])
             result = handler(args, stdin=stdin or "")
             if isinstance(result, ExecResult):
                 return result.stdout
@@ -116,52 +131,68 @@ class BashkitPythonDriver(ShellDriver):
         return self._bash
 
     def _sync_dirty_to_bashkit(self) -> list[str]:
-        """Write dirty files into bashkit via echo commands. Returns commands to prepend."""
+        """Write dirty files into bashkit via base64-encoded commands. Returns commands to prepend."""
         commands: list[str] = []
         for path in list(self._fs_driver.dirty):
             if self._fs_driver.exists(path) and not self._fs_driver.is_dir(path):
                 content = self._fs_driver.read_text(path)
-                # Escape content for shell: use base64 or heredoc
-                # Simple approach: use printf with escaped content
-                escaped = content.replace("\\", "\\\\").replace("'", "'\\''")
-                commands.append(f"mkdir -p $(dirname '{path}') && printf '%s' '{escaped}' > '{path}'")
+                encoded = base64.b64encode(content.encode()).decode()
+                commands.append(f"mkdir -p $(dirname '{path}') && printf '%s' '{encoded}' | base64 -d > '{path}'")
             elif not self._fs_driver.exists(path):
-                # File was removed
                 commands.append(f"rm -f '{path}'")
         self._fs_driver.clear_dirty()
         return commands
 
     def _sync_bashkit_to_vfs(self, executor: Any) -> None:
         """After exec, list files in bashkit and diff/apply changes to our VFS."""
-        # Use find command to list all files in bashkit
-        result = executor.execute_sync("find / -type f 2>/dev/null")
-        if result.exit_code != 0 or not result.stdout.strip():
+        marker = "===FILE:"
+        end_marker = "==="
+        script = (
+            "find / -type f 2>/dev/null -exec sh -c "
+            "'for f; do printf \"===FILE:%s===\\n\" \"$f\"; base64 \"$f\"; done' _ {} +"
+        )
+        result = executor.execute_sync(script)
+        if result.exit_code != 0:
             return
 
-        bashkit_files = set(result.stdout.strip().split("\n"))
+        bashkit_files: dict[str, str] = {}
+        current_path: str | None = None
+        content_lines: list[str] = []
 
-        # Get current VFS files
-        vfs_files = set()
+        for line in result.stdout.split("\n"):
+            if line.startswith(marker) and line.endswith(end_marker):
+                if current_path is not None:
+                    encoded = "".join(content_lines)
+                    try:
+                        bashkit_files[current_path] = base64.b64decode(encoded).decode()
+                    except Exception:
+                        bashkit_files[current_path] = encoded
+                current_path = line[len(marker):-len(end_marker)]
+                content_lines = []
+            elif current_path is not None:
+                content_lines.append(line)
+
+        if current_path is not None:
+            encoded = "".join(content_lines)
+            try:
+                bashkit_files[current_path] = base64.b64decode(encoded).decode()
+            except Exception:
+                bashkit_files[current_path] = encoded
+
+        vfs_files: set[str] = set()
         for path in self._fs_driver.find("/", "*"):
             if not self._fs_driver.is_dir(path):
                 vfs_files.add(path)
 
-        # Files created or modified in bashkit
-        for path in bashkit_files:
-            if not path:
-                continue
-            cat_result = executor.execute_sync(f"cat '{path}'")
-            if cat_result.exit_code == 0:
-                new_content = cat_result.stdout
-                if path not in vfs_files:
+        for path, new_content in bashkit_files.items():
+            if path not in vfs_files:
+                self._fs_driver._inner.write(path, new_content)
+            else:
+                existing = self._fs_driver.read_text(path)
+                if existing != new_content:
                     self._fs_driver._inner.write(path, new_content)
-                else:
-                    existing = self._fs_driver.read_text(path)
-                    if existing != new_content:
-                        self._fs_driver._inner.write(path, new_content)
 
-        # Files deleted in bashkit
-        for path in vfs_files - bashkit_files:
+        for path in vfs_files - set(bashkit_files.keys()):
             if self._fs_driver.exists(path):
                 self._fs_driver._inner.remove(path)
 
@@ -196,6 +227,8 @@ class BashkitPythonDriver(ShellDriver):
             executor.execute_sync(preamble)
 
         result = executor.execute_sync(command)
+
+        self._sync_bashkit_to_vfs(executor)
 
         return ExecResult(
             stdout=result.stdout if result.stdout else "",

@@ -11,12 +11,40 @@ use PHPUnit\Framework\TestCase;
 
 class BashkitCLIDriverTest extends TestCase
 {
+    /** Create a driver where sync-back is a no-op (no marker in output). */
     private function createDriver(array $responses = []): BashkitCLIDriver
     {
         $default = ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
         return new BashkitCLIDriver(
             execOverride: function (string $cmd) use ($responses, $default): array {
-                return $responses[$cmd] ?? $default;
+                // Strip preamble and epilogue to match responses by base command
+                $baseCmd = preg_replace("/; printf '\\\\n__HARNESS_FS_SYNC_\\d+__\\\\n'.*/s", '', $cmd);
+                $baseCmd = preg_replace("/^.*? && (?=echo |cat |bad_cmd|ls)/", '', $baseCmd);
+                foreach ($responses as $key => $resp) {
+                    if (str_starts_with($baseCmd, $key)) {
+                        return ['stdout' => $resp['stdout'] ?? '', 'stderr' => $resp['stderr'] ?? '', 'exitCode' => $resp['exitCode'] ?? 0];
+                    }
+                }
+                return $default;
+            },
+        );
+    }
+
+    private function createDriverWithSyncBack(array $syncFiles): BashkitCLIDriver
+    {
+        return new BashkitCLIDriver(
+            execOverride: function (string $cmd) use ($syncFiles): array {
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    $marker = $matches[0];
+                    $lines = [];
+                    foreach ($syncFiles as $path => $content) {
+                        $lines[] = "===FILE:{$path}===";
+                        $lines[] = base64_encode($content);
+                    }
+                    $syncData = implode("\n", $lines);
+                    return ['stdout' => "output\n{$marker}\n{$syncData}", 'stderr' => '', 'exitCode' => 0];
+                }
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
             },
         );
     }
@@ -80,6 +108,7 @@ class BashkitCLIDriverTest extends TestCase
     {
         $driver = $this->createDriver();
         $driver->fs()->write('/file.txt', 'content');
+        $driver->exec('ls'); // clear dirty
         $cloned = $driver->cloneDriver();
         $this->assertTrue($cloned->fs()->exists('/file.txt'));
         $cloned->fs()->write('/other.txt', 'data');
@@ -103,5 +132,100 @@ class BashkitCLIDriverTest extends TestCase
         $result = $driver->exec('bad_cmd');
         $this->assertSame('not found', $result->stderr);
         $this->assertSame(127, $result->exitCode);
+    }
+
+    // --- VFS sync tests ---
+
+    public function testDirtyFileSyncedAsPreamble(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    return ['stdout' => "\n{$matches[0]}\n", 'stderr' => '', 'exitCode' => 0];
+                }
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->fs()->write('/hello.txt', 'world');
+        $driver->exec('cat /hello.txt');
+        $this->assertCount(1, $calls);
+        $this->assertStringContainsString('base64', $calls[0]);
+        $this->assertStringContainsString('/hello.txt', $calls[0]);
+        $this->assertStringContainsString(base64_encode('world'), $calls[0]);
+    }
+
+    public function testNoPreambleWhenNoDirty(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    return ['stdout' => "\n{$matches[0]}\n", 'stderr' => '', 'exitCode' => 0];
+                }
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->exec('echo hi');
+        $this->assertCount(1, $calls);
+        $this->assertStringStartsWith('echo hi', $calls[0]);
+    }
+
+    public function testNewFileSyncedBackToVfs(): void
+    {
+        $driver = $this->createDriverWithSyncBack(['/created.txt' => 'from bashkit']);
+        $driver->exec('echo from bashkit > /created.txt');
+        $this->assertTrue($driver->fs()->exists('/created.txt'));
+        $this->assertSame('from bashkit', $driver->fs()->readText('/created.txt'));
+    }
+
+    public function testModifiedFileSyncedBackToVfs(): void
+    {
+        $driver = $this->createDriverWithSyncBack(['/existing.txt' => 'modified']);
+        $driver->fs()->write('/existing.txt', 'original');
+        $driver->exec('echo modified > /existing.txt');
+        $this->assertSame('modified', $driver->fs()->readText('/existing.txt'));
+    }
+
+    public function testDeletedFileRemovedFromVfs(): void
+    {
+        $driver = $this->createDriverWithSyncBack([]);
+        $driver->fs()->write('/to_delete.txt', 'data');
+        $driver->exec('rm /to_delete.txt');
+        $this->assertFalse($driver->fs()->exists('/to_delete.txt'));
+    }
+
+    public function testStdoutSeparatedFromSyncData(): void
+    {
+        $driver = $this->createDriverWithSyncBack(['/f.txt' => 'data']);
+        $result = $driver->exec('echo hello');
+        $this->assertSame('output', $result->stdout);
+    }
+
+    public function testSpecialCharsSurviveSync(): void
+    {
+        $content = "quotes'here\nback\\slash\n%percent";
+        $driver = $this->createDriverWithSyncBack(['/special.txt' => $content]);
+        $driver->exec('echo special');
+        $this->assertSame($content, $driver->fs()->readText('/special.txt'));
+    }
+
+    public function testRemovedFileSyncedAsRm(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->fs()->write('/file.txt', 'data');
+        $driver->exec('ls'); // clears dirty, no sync-back (no marker in output)
+        $driver->fs()->remove('/file.txt');
+        $driver->exec('ls');
+        $lastCmd = $calls[count($calls) - 1];
+        $this->assertStringContainsString("rm -f '/file.txt'", $lastCmd);
     }
 }

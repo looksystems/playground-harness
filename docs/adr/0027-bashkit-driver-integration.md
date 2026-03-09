@@ -91,13 +91,34 @@ Each language has a single resolution path:
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
 | State persistence between exec() | Yes | No | No |
 | Custom command callbacks | Yes (ScriptedTool) | No | No |
-| VFS sync | Hybrid lazy | None (stateless) | None (stateless) |
+| VFS sync | Hybrid lazy (bidirectional) | Preamble/epilogue (bidirectional) | Preamble/epilogue (bidirectional) |
 | Async support | Yes (execute/execute_sync) | Sync only | Sync only |
+
+### VFS Sync Strategies
+
+**Python (in-process):**
+- `_DirtyTrackingFS` wrapper tracks written/removed files
+- Before exec: only dirty files are synced to bashkit via base64-encoded commands
+- After exec: a single batched `find + base64` command reads all bashkit files back, diffs against VFS, and applies changes
+- Content encoding uses base64 to handle special characters (quotes, backslashes, percent signs, newlines)
+
+**TypeScript / PHP (CLI subprocess):**
+- Same `DirtyTrackingFS` wrapper pattern as Python
+- Before exec (preamble): dirty files are injected as base64-encoded shell commands prepended to the user's command
+- After exec (epilogue): a `find + base64` command is appended after the user's command with a unique marker separator
+- The driver parses stdout to split user output from sync data using the marker
+- Exit code is preserved by capturing `$?` before the epilogue runs
+- Shell state (variables, functions) still does NOT persist between exec() calls — each invocation is a new subprocess
 
 ## Consequences
 
 - Python gets the richest integration: in-process, stateful, with custom command support
-- TypeScript and PHP get basic one-shot execution — sufficient for script running but not stateful sessions
+- TypeScript and PHP get VFS sync via preamble/epilogue — files persist between exec() calls but shell state does not
 - The `ShellDriver` contract from Phase 1 remains unchanged — all drivers implement the same interface
 - `registerCommand` in TS/PHP stores handlers locally but they won't be available in the bashkit subprocess
-- Future improvements could include napi-rs bindings for TypeScript or contributing MCP state persistence upstream
+
+## Future Directions
+
+- **bashkit MCP** (`bashkit mcp`) currently provides a single stateless `bash` tool — insufficient for stateful sessions or VFS sync. If bashkit adds session support or filesystem tools to its MCP server upstream, a `BashkitMCPDriver` could provide Python-equivalent capabilities for TS/PHP without subprocess overhead.
+- The **everruns pattern** (Rust-level `FileSystem` trait implementation via `SessionFileSystemAdapter`) is the gold standard for VFS integration but requires direct Rust library dependency. This is not feasible for our multi-language architecture.
+- The `ShellDriver` contract already supports plugging in new driver types without API changes — a future MCP or napi-rs driver would be a drop-in replacement.

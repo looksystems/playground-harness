@@ -141,20 +141,31 @@ The `BashkitPythonDriver` wraps the `bashkit` Python package, which is a Rust na
 
 The host's `FilesystemDriver` remains the source of truth. A `_DirtyTrackingFS` wrapper intercepts writes to track which files have changed since the last exec:
 
-1. Before exec: only dirty files are written into bashkit's VFS
+1. Before exec: only dirty files are written into bashkit's VFS via base64-encoded commands
 2. The command executes in bashkit's interpreter
-3. After exec: bashkit's VFS is diffed and changes are applied back to the host FS
+3. After exec: a batched `find + base64` command reads all bashkit files back; changes are diffed and applied to the host FS
 
-This avoids the overhead of full-snapshot serialization on every call.
+Content is base64-encoded during sync to safely handle special characters (quotes, backslashes, percent signs, newlines, binary content).
 
 ### TypeScript / PHP: CLI Subprocess
 
 The `BashkitCLIDriver` spawns `bashkit -c 'command'` for each `exec()` call. Each invocation creates a fresh bashkit instance.
 
+**VFS synchronization (preamble/epilogue):**
+
+Despite being stateless at the process level, the CLI driver maintains VFS consistency across exec() calls using the same `DirtyTrackingFS` pattern as Python:
+
+1. Before exec (preamble): dirty files are injected as base64-encoded shell commands prepended to the user's command
+2. The combined script runs in a single bashkit subprocess
+3. After exec (epilogue): a `find + base64` command appended with a unique marker dumps all file state
+4. The driver parses stdout to split user output from sync data, and applies changes back to the host VFS
+
+The exit code from the user's command is preserved by capturing `$?` before the epilogue runs.
+
 **Limitations:**
-- **Stateless** — no persistent shell state between `exec()` calls (new process each time)
+- **No persistent shell state** — variables, functions, and aliases don't persist between `exec()` calls (new process each time)
 - **No custom commands** — `registerCommand()` stores handlers locally, but they are not available inside the subprocess
-- **No VFS sync** — the subprocess has its own ephemeral in-memory filesystem
+- **VFS files do persist** — the preamble/epilogue pattern ensures files written in one exec() are available in the next
 
 ---
 
@@ -241,18 +252,17 @@ agent = await (
 | Capability | Python | TypeScript | PHP |
 |-----------|--------|------------|-----|
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
-| State persistence between exec() | Yes | No | No |
+| Shell state persistence between exec() | Yes | No | No |
 | Custom command callbacks | Yes (ScriptedTool) | No | No |
-| VFS sync | Hybrid lazy | None (stateless) | None (stateless) |
+| VFS sync | Hybrid lazy (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
 | Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
 
 ---
 
 ## Limitations
 
-- **TypeScript/PHP are stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls.
+- **TypeScript/PHP shell state is stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls. VFS files do persist via preamble/epilogue sync.
 - **Custom commands only work in Python.** The CLI subprocess can't call back into the host process.
-- **VFS sync is Python-only.** TS/PHP CLI driver doesn't sync files between the host VFS and bashkit.
 - **Synchronous only.** All drivers block on execution, matching the synchronous `ShellDriver` contract.
 
 ### Related Documents

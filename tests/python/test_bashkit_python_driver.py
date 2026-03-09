@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 from src.python.bashkit_python_driver import BashkitPythonDriver, _DirtyTrackingFS
@@ -39,6 +41,17 @@ class MockBash:
     def enqueue_result(self, result: MockResult) -> None:
         """Queue a specific result for the next execute_sync call."""
         self._results_queue.append(result)
+
+
+def _make_sync_back_result(files: dict[str, str] | None = None) -> MockResult:
+    """Build a MockResult simulating the batched find+base64 sync-back output."""
+    if files is None:
+        return MockResult(stdout="", exit_code=1)
+    lines: list[str] = []
+    for path, content in files.items():
+        lines.append(f"===FILE:{path}===")
+        lines.append(base64.b64encode(content.encode()).decode())
+    return MockResult(stdout="\n".join(lines))
 
 
 def make_driver(**kwargs) -> tuple[BashkitPythonDriver, MockBash]:
@@ -81,7 +94,9 @@ class TestBashkitPythonDriverExec:
 
     def test_exec_returns_stdout(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stdout="hello world")
+        # Queue: command result, then sync-back result (empty = no files)
+        mock.enqueue_result(MockResult(stdout="hello world"))
+        mock.enqueue_result(_make_sync_back_result())
         result = driver.exec("echo hello world")
         assert isinstance(result, ExecResult)
         assert result.stdout == "hello world"
@@ -89,27 +104,30 @@ class TestBashkitPythonDriverExec:
 
     def test_exec_returns_stderr(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stderr="error occurred", exit_code=1)
+        mock.enqueue_result(MockResult(stderr="error occurred", exit_code=1))
+        mock.enqueue_result(_make_sync_back_result())
         result = driver.exec("bad_cmd")
         assert result.stderr == "error occurred"
         assert result.exit_code == 1
 
     def test_exec_returns_exit_code(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stdout="", stderr="", exit_code=42)
+        mock.enqueue_result(MockResult(stdout="", stderr="", exit_code=42))
+        mock.enqueue_result(_make_sync_back_result())
         result = driver.exec("exit 42")
         assert result.exit_code == 42
 
     def test_exec_calls_execute_sync(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stdout="ok")
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
         driver.exec("ls -la")
-        # The actual command should be in the calls (may have sync preamble too)
         assert any("ls -la" in call for call in mock.calls)
 
     def test_exec_with_multiline_output(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stdout="line1\nline2\nline3")
+        mock.enqueue_result(MockResult(stdout="line1\nline2\nline3"))
+        mock.enqueue_result(_make_sync_back_result())
         result = driver.exec("cat file")
         assert result.stdout == "line1\nline2\nline3"
 
@@ -125,27 +143,33 @@ class TestBashkitPythonDriverVfsSync:
     def test_dirty_cleared_after_exec(self):
         driver, mock = make_driver()
         driver.fs.write("/hello.txt", "world")
-        mock.next_result = MockResult(stdout="ok")
+        # preamble, command, sync-back
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
         driver.exec("echo hi")
         assert len(driver._fs_driver.dirty) == 0
 
     def test_dirty_file_synced_before_exec(self):
         driver, mock = make_driver()
         driver.fs.write("/hello.txt", "world")
-        mock.next_result = MockResult(stdout="ok")
+        # preamble, command, sync-back
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
         driver.exec("cat /hello.txt")
-        # First call should be the sync preamble, second the actual command
         assert len(mock.calls) >= 2
         sync_cmd = mock.calls[0]
         assert "/hello.txt" in sync_cmd
-        assert "world" in sync_cmd
+        assert "base64" in sync_cmd
 
     def test_no_sync_when_no_dirty_files(self):
         driver, mock = make_driver()
-        mock.next_result = MockResult(stdout="ok")
+        # command, sync-back
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
         driver.exec("echo hi")
-        # Only the actual command, no preamble
-        assert len(mock.calls) == 1
+        # command + sync-back = 2 calls, no preamble
         assert mock.calls[0] == "echo hi"
 
     def test_dirty_tracking_on_write_lazy(self):
@@ -163,11 +187,13 @@ class TestBashkitPythonDriverVfsSync:
     def test_removed_file_synced_as_rm(self):
         driver, mock = make_driver()
         driver.fs.write("/file.txt", "data")
-        driver._fs_driver.clear_dirty()  # clear the write dirty
+        driver._fs_driver.clear_dirty()
         driver.fs.remove("/file.txt")
-        mock.next_result = MockResult(stdout="ok")
+        # preamble, command, sync-back
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
         driver.exec("ls")
-        # Sync should issue rm -f for the removed file
         assert len(mock.calls) >= 2
         assert "rm -f" in mock.calls[0]
         assert "/file.txt" in mock.calls[0]
@@ -203,7 +229,8 @@ class TestBashkitPythonDriverCommands:
     def test_exec_still_works_after_register(self):
         driver, mock = make_driver()
         driver.register_command("greet", lambda args, stdin="": ExecResult(stdout="hi"))
-        mock.next_result = MockResult(stdout="done")
+        mock.enqueue_result(MockResult(stdout="done"))
+        mock.enqueue_result(_make_sync_back_result())
         result = driver.exec("greet world")
         assert result.stdout == "done"
 
@@ -218,7 +245,8 @@ class TestBashkitPythonDriverWrapHandler:
             return ExecResult(stdout=f"hello {' '.join(args)}")
 
         wrapped = driver._wrap_handler(handler)
-        result = wrapped({"args": ["world"]}, None)
+        # ScriptedTool uses --flag value params; positional args go under "" key
+        result = wrapped({"": "world"}, None)
         assert result == "hello world"
 
     def test_wrap_handler_with_string_result(self):
@@ -228,8 +256,9 @@ class TestBashkitPythonDriverWrapHandler:
             return f"result: {' '.join(args)}"
 
         wrapped = driver._wrap_handler(handler)
-        result = wrapped({"args": ["a", "b"]}, None)
-        assert result == "result: a b"
+        # ScriptedTool flag-based params become --key value pairs in args list
+        result = wrapped({"name": "foo", "count": "2"}, None)
+        assert result == "result: --name foo --count 2"
 
     def test_wrap_handler_passes_stdin(self):
         driver, _ = make_driver()
@@ -350,5 +379,85 @@ class TestDirtyTrackingFS:
         driver.fs.write("/test.txt", "data")
         cloned = driver.fs.clone()
         assert isinstance(cloned, _DirtyTrackingFS)
-        # Cloned should have clean dirty set
         assert len(cloned.dirty) == 0
+
+
+class TestBashkitPythonDriverSyncBack:
+    """Sync-back: files created/modified in bashkit propagate to VFS."""
+
+    def test_new_file_synced_back_to_vfs(self):
+        driver, mock = make_driver()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({"/created.txt": "from bashkit"}))
+        driver.exec("echo from bashkit > /created.txt")
+        assert driver.fs.exists("/created.txt")
+        assert driver.fs.read_text("/created.txt") == "from bashkit"
+
+    def test_modified_file_synced_back_to_vfs(self):
+        driver, mock = make_driver()
+        driver.fs.write("/existing.txt", "original")
+        driver._fs_driver.clear_dirty()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({"/existing.txt": "modified"}))
+        driver.exec("echo modified > /existing.txt")
+        assert driver.fs.read_text("/existing.txt") == "modified"
+
+    def test_deleted_file_removed_from_vfs(self):
+        driver, mock = make_driver()
+        driver.fs.write("/to_delete.txt", "data")
+        driver._fs_driver.clear_dirty()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({}))
+        driver.exec("rm /to_delete.txt")
+        assert not driver.fs.exists("/to_delete.txt")
+
+    def test_unchanged_file_not_overwritten(self):
+        driver, mock = make_driver()
+        driver.fs.write("/stable.txt", "constant")
+        driver._fs_driver.clear_dirty()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({"/stable.txt": "constant"}))
+        driver.exec("cat /stable.txt")
+        assert driver.fs.read_text("/stable.txt") == "constant"
+
+    def test_multiple_files_synced_back(self):
+        driver, mock = make_driver()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({
+            "/a.txt": "alpha",
+            "/b.txt": "beta",
+        }))
+        driver.exec("touch /a.txt /b.txt")
+        assert driver.fs.read_text("/a.txt") == "alpha"
+        assert driver.fs.read_text("/b.txt") == "beta"
+
+    def test_special_chars_in_content(self):
+        driver, mock = make_driver()
+        content = "line1\nline2\n'quoted'\n\\backslash\n%percent"
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result({"/special.txt": content}))
+        driver.exec("echo special > /special.txt")
+        assert driver.fs.read_text("/special.txt") == content
+
+    def test_base64_encoding_in_preamble(self):
+        driver, mock = make_driver()
+        content = "has 'quotes' and %percent and \\backslash"
+        driver.fs.write("/tricky.txt", content)
+        # preamble, command, sync-back
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(_make_sync_back_result())
+        driver.exec("cat /tricky.txt")
+        sync_cmd = mock.calls[0]
+        assert "base64" in sync_cmd
+        encoded = base64.b64encode(content.encode()).decode()
+        assert encoded in sync_cmd
+
+    def test_sync_back_error_result_is_noop(self):
+        driver, mock = make_driver()
+        driver.fs.write("/keep.txt", "keep me")
+        driver._fs_driver.clear_dirty()
+        mock.enqueue_result(MockResult(stdout="ok"))
+        mock.enqueue_result(MockResult(stdout="", exit_code=1))
+        driver.exec("echo hi")
+        assert driver.fs.exists("/keep.txt")
