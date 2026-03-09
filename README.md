@@ -48,7 +48,7 @@ Design decisions are documented in [docs/adr/](docs/adr/README.md).
 
 Streamed events currently assumes last field is streamed - this needs to be reviewed and api adjusted accordingly.
 
-Virtual fs/shell could be extracted into separate packages - in particular, the virtual fs/shell could be a high performance core, say in rust with extensibility in the client languages. The bashkit IPC driver (Phase 2) is a step in this direction; Phase 3 added native in-process FFI drivers via ffi.
+Virtual fs/shell could be extracted into separate packages - in particular, the virtual fs/shell could be a high performance core, say in rust with extensibility in the client languages. The bashkit integration uses the `bashkit` PyO3 package for Python (in-process, stateful, with custom command support) and the `bashkit` CLI for TypeScript/PHP (stateless subprocess).
 
 Need to think further about the message bus and whether there should be any convensions re. emtting events vs commands (and tools). Message bus will be a separate package.
 

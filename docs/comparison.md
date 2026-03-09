@@ -18,11 +18,10 @@ The Python, TypeScript, and PHP implementations of the agent harness share the s
 | **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` |
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
-| **Test Count** | 371 | 401 | 366 |
+| **Test Count** | 360 | 364 | 328 |
 | **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` |
-| **Bashkit Native Driver** | `BashkitNativeDriver` (ctypes FFI) | `BashkitNativeDriver` (ffi-napi FFI) | `BashkitNativeDriver` (PHP FFI) |
-| **Bashkit IPC Driver** | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) | `BashkitIPCDriver` (JSON-RPC over stdin/stdout) |
-| **Bashkit Resolver** | `BashkitDriver.resolve()` → native FFI > IPC | `BashkitDriver.resolve()` → native FFI > IPC | `BashkitDriver::resolve()` → native FFI > IPC |
+| **Bashkit Driver** | `BashkitPythonDriver` (PyO3 in-process) | `BashkitCLIDriver` (CLI subprocess) | `BashkitCLIDriver` (CLI subprocess) |
+| **Bashkit Resolver** | `BashkitDriver.resolve()` → `import bashkit` | `BashkitDriver.resolve()` → `which bashkit` | `BashkitDriver::resolve()` → `which bashkit` |
 | **FS Driver** | `FilesystemDriver` (ABC) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` |
 | **Driver Factory** | `ShellDriverFactory` (class methods) | `ShellDriverFactory` (static methods) | `ShellDriverFactory` (static methods) |
 | **Driver Selection** | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `->driver()` |

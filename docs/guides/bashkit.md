@@ -4,12 +4,10 @@
 
 [bashkit](https://github.com/everruns/bashkit) is a Rust-based sandboxed POSIX shell (IEEE 1003.1-2024) with 100+ builtins, a virtual filesystem, and resource limits. The agent harness integrates with bashkit as an optional shell driver, giving agents a fully POSIX-compliant shell without changing any agent code — just set `driver("bashkit")`.
 
-The integration supports two transports, auto-selected at runtime:
+The integration differs by language:
 
-1. **Native FFI** (preferred) — calls bashkit in-process via a shared C library (`libashkit`) using each language's FFI (`ctypes`, `ffi-napi`, PHP `FFI`)
-2. **IPC fallback** — spawns `bashkit-cli` as a long-lived subprocess and communicates via JSON-RPC over stdin/stdout
-
-Both transports are behind the same `"bashkit"` driver name. The resolver prefers native FFI when `libashkit` is available, falling back to IPC automatically.
+- **Python** — in-process via `bashkit` PyO3 package. Stateful, with custom command support via `ScriptedTool`.
+- **TypeScript / PHP** — subprocess via `bashkit -c`. Stateless one-shot execution.
 
 ### Why bashkit?
 
@@ -17,7 +15,7 @@ Both transports are behind the same `"bashkit"` driver name. The resolver prefer
 |---|---|---|
 | **Builtins** | ~30 commands | 100+ POSIX commands |
 | **POSIX compliance** | Subset (pipes, redirects, control flow) | Full IEEE 1003.1-2024 |
-| **Dependencies** | None (pure language) | `libashkit` shared library or `bashkit-cli` binary |
+| **Dependencies** | None (pure language) | `bashkit` Python package or `bashkit` CLI binary |
 | **Sandboxing** | Basic (allowed commands list) | Resource limits (max commands, loop iterations, function depth) |
 | **Performance** | Interpreted | Native Rust |
 
@@ -27,48 +25,29 @@ The builtin shell remains the default — zero dependencies, good enough for mos
 
 ## Prerequisites
 
-You need either the native shared library (recommended) or the CLI binary.
+### Python
 
-### Option A: Native FFI (Recommended)
-
-Install the `libashkit` shared library:
+Install the `bashkit` Python package (PyO3-compiled native extension):
 
 ```bash
-# From source (requires Rust toolchain)
-cargo build --release -p bashkit-ffi
-# Copy the library to a standard path
-cp target/release/libashkit.dylib /usr/local/lib/   # macOS
-cp target/release/libashkit.so /usr/local/lib/       # Linux
+pip install bashkit
 ```
 
-Or set the `BASHKIT_LIB_PATH` environment variable to the exact library path:
+This provides in-process execution with full feature support.
 
-```bash
-export BASHKIT_LIB_PATH=/path/to/libashkit.dylib
-```
+### TypeScript / PHP
 
-**Library discovery order:**
-1. `BASHKIT_LIB_PATH` env var (exact path to the shared library file)
-2. Platform library search paths (`DYLD_LIBRARY_PATH` / `LD_LIBRARY_PATH`)
-3. Standard system paths (`/usr/local/lib`, `/usr/lib`)
-
-**TypeScript only:** requires the `ffi-napi` and `ref-napi` npm packages.
-
-### Option B: IPC Fallback
-
-Install the `bashkit-cli` binary and ensure it's on your `PATH`:
+Install the `bashkit` CLI binary:
 
 ```bash
 # From source (requires Rust toolchain)
 cargo install bashkit-cli
 
 # Verify installation
-bashkit-cli --version
+bashkit -c 'echo hello'
 ```
 
-> **Note:** `bashkit-cli` must support a `--jsonrpc` mode for the IPC driver. Check the [bashkit repository](https://github.com/everruns/bashkit) for current status.
-
-No language-specific packages are needed for the IPC driver. It uses only standard library subprocess/process APIs.
+> **Note:** The CLI path provides stateless one-shot execution. Custom command callbacks registered via `registerCommand()` are stored locally but not available in the subprocess. For full feature support, use the Python integration.
 
 ---
 
@@ -139,73 +118,51 @@ echo $result->stdout; // "HELLO\n"
 
 ## How It Works
 
-### Auto-Resolution
+### Resolution
 
-When you say `driver("bashkit")`, the `BashkitDriver` resolver picks the best available transport:
+When you say `driver("bashkit")`, the resolver checks for the appropriate runtime:
 
-```
-BashkitDriver.resolve():
-    1. libashkit shared library found?  →  BashkitNativeDriver  (preferred)
-    2. bashkit-cli on PATH?             →  BashkitIPCDriver     (fallback)
-    3. Neither?                         →  RuntimeError
-```
+| Language | Resolver checks | Driver returned |
+|----------|----------------|-----------------|
+| Python | `import bashkit` succeeds | `BashkitPythonDriver` |
+| TypeScript | `which bashkit` succeeds | `BashkitCLIDriver` |
+| PHP | `which bashkit` succeeds | `BashkitCLIDriver` |
 
-You never choose between native and IPC explicitly. Install `libashkit` and existing code automatically upgrades from IPC to native.
+### Python: In-Process (PyO3)
 
-### Native FFI
+The `BashkitPythonDriver` wraps the `bashkit` Python package, which is a Rust native extension compiled via PyO3. Execution happens in-process — no subprocess overhead.
 
-The native driver loads `libashkit` via each language's FFI mechanism and calls bashkit in-process — no subprocess overhead.
+**Key features:**
+- **Stateful** — shell state (variables, functions) persists between `exec()` calls within the same driver instance
+- **Custom commands** — `register_command()` uses bashkit's `ScriptedTool` to register Python callbacks as bash builtins
+- **VFS sync** — hybrid lazy sync tracks dirty files and syncs only changes before/after each `exec()`
 
-| Language | FFI Mechanism | Callback Support |
-|----------|--------------|-----------------|
-| Python | `ctypes` (stdlib) | `ctypes.CFUNCTYPE` |
-| TypeScript | `ffi-napi` + `ref-napi` | `ffi.Callback` |
-| PHP | `FFI` (built-in 7.4+) | `FFI` closure binding |
+**VFS synchronization:**
 
-**C API surface:**
+The host's `FilesystemDriver` remains the source of truth. A `_DirtyTrackingFS` wrapper intercepts writes to track which files have changed since the last exec:
 
-```c
-bashkit_t*   bashkit_create(const char* config_json);
-void         bashkit_destroy(bashkit_t* ctx);
-const char*  bashkit_exec(bashkit_t* ctx, const char* request_json);
-void         bashkit_register_command(bashkit_t* ctx, const char* name, bashkit_command_cb cb, void* userdata);
-void         bashkit_unregister_command(bashkit_t* ctx, const char* name);
-void         bashkit_free_string(const char* str);
-```
+1. Before exec: only dirty files are written into bashkit's VFS
+2. The command executes in bashkit's interpreter
+3. After exec: bashkit's VFS is diffed and changes are applied back to the host FS
 
-Custom commands registered via `register_command()` are wrapped into C function pointers and passed directly to bashkit. They compose fully with pipes, redirects, and control flow — behaving identically to built-in commands.
+This avoids the overhead of full-snapshot serialization on every call.
 
-### JSON-RPC Protocol (IPC)
+### TypeScript / PHP: CLI Subprocess
 
-The IPC driver spawns `bashkit-cli --jsonrpc` and communicates via newline-delimited JSON-RPC over stdin/stdout:
+The `BashkitCLIDriver` spawns `bashkit -c 'command'` for each `exec()` call. Each invocation creates a fresh bashkit instance.
 
-```
-Host → bashkit-cli:  {"method":"exec","params":{"cmd":"ls -la","cwd":"/","env":{},"fs":{...}},"id":1}
-bashkit-cli → Host:  {"id":1,"result":{"stdout":"...","exitCode":0,"fs_changes":{...}}}
-```
-
-Each `exec()` call:
-1. **Snapshots** the host virtual filesystem into a JSON dict
-2. **Sends** the snapshot + command to bashkit-cli
-3. **Handles** any callback requests (for custom commands — see below)
-4. **Applies** filesystem changes (created/deleted files) back to the host VFS
-5. **Returns** an `ExecResult` with stdout, stderr, and exit code
-
-### VFS Sync (Host-Owns Model)
-
-The host's `FilesystemDriver` is always the source of truth. Before each command, the driver serializes all files (including lazy providers) into the request. After execution, any files bashkit created or deleted are applied back. This means:
-
-- `agent.fs.write()` and `agent.exec()` stay in sync automatically
-- Lazy file providers (`write_lazy()`) resolve naturally during snapshot
-- No shared mutable state between host and bashkit
+**Limitations:**
+- **Stateless** — no persistent shell state between `exec()` calls (new process each time)
+- **No custom commands** — `registerCommand()` stores handlers locally, but they are not available inside the subprocess
+- **No VFS sync** — the subprocess has its own ephemeral in-memory filesystem
 
 ---
 
-## Custom Commands
+## Custom Commands (Python Only)
 
-Custom commands registered via `registerCommand()` work transparently over both native FFI and IPC transports. They compose with pipes, redirects, and control flow — just like built-in commands. Over native FFI, callbacks are C function pointers invoked in-process. Over IPC, bashkit invokes them mid-evaluation via bidirectional JSON-RPC.
+Custom commands registered via `register_command()` become bash builtins inside bashkit. They compose with pipes, redirects, and control flow — just like built-in commands.
 
-### Python
+Under the hood, `BashkitPythonDriver` uses bashkit's `ScriptedTool` API. When you register a command, the driver switches from `Bash` to `ScriptedTool` for execution, which supports callback invocation during script evaluation.
 
 ```python
 from src.python.shell import ExecResult
@@ -217,41 +174,7 @@ agent.register_command("summarize", lambda args, stdin: ExecResult(
 result = agent.exec("cat /data.txt | summarize")
 ```
 
-### TypeScript
-
-```typescript
-agent.registerCommand("summarize", (args, stdin) => ({
-  stdout: `Summary of ${stdin.split("\n").length} lines\n`,
-  stderr: "",
-  exitCode: 0,
-}));
-
-const result = agent.exec("cat /data.txt | summarize");
-```
-
-### PHP
-
-```php
-$agent->registerCommand('summarize', function (array $args, string $stdin): \AgentHarness\ExecResult {
-    $lines = count(explode("\n", $stdin));
-    return new \AgentHarness\ExecResult(stdout: "Summary of {$lines} lines\n");
-});
-
-$result = $agent->execCommand('cat /data.txt | summarize');
-```
-
-### How Callbacks Work Over IPC
-
-When bashkit encounters a custom command during evaluation, it pauses and sends an `invoke_command` request back to the host:
-
-```
-Host → bashkit:  {"id":1,"method":"exec","params":{"cmd":"echo hi | summarize"}}
-bashkit → Host:  {"id":100,"method":"invoke_command","params":{"name":"summarize","args":[],"stdin":"hi\n"}}
-Host → bashkit:  {"id":100,"result":"Summary of 1 lines\n"}
-bashkit → Host:  {"id":1,"result":{"stdout":"Summary of 1 lines\n","exitCode":0}}
-```
-
-The host runs a simple event loop that dispatches callback requests to locally registered handlers and resolves the pending exec call when the final result arrives.
+> **Note:** Custom commands are not supported in the TypeScript and PHP `BashkitCLIDriver` because the CLI subprocess cannot call back into the host process.
 
 ---
 
@@ -313,17 +236,28 @@ agent = await (
 
 ---
 
+## Capabilities by Language
+
+| Capability | Python | TypeScript | PHP |
+|-----------|--------|------------|-----|
+| In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
+| State persistence between exec() | Yes | No | No |
+| Custom command callbacks | Yes (ScriptedTool) | No | No |
+| VFS sync | Hybrid lazy | None (stateless) | None (stateless) |
+| Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
+
+---
+
 ## Limitations
 
-- **Full VFS snapshot** is sent with every `exec()` call. For large virtual filesystems, this adds serialization overhead. Dirty-tracking optimization is planned but not yet implemented.
-- **Synchronous only.** Both native and IPC drivers block on execution. This matches the synchronous `ShellDriver` contract.
-- **`bashkit-cli --jsonrpc` mode** may not exist upstream yet (IPC path only). Check the [bashkit repository](https://github.com/everruns/bashkit) or use a fork that supports it.
-- **Native FFI requires `libashkit`** shared library to be built and installed. A single library serves all three languages.
+- **TypeScript/PHP are stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls.
+- **Custom commands only work in Python.** The CLI subprocess can't call back into the host process.
+- **VFS sync is Python-only.** TS/PHP CLI driver doesn't sync files between the host VFS and bashkit.
+- **Synchronous only.** All drivers block on execution, matching the synchronous `ShellDriver` contract.
 
 ### Related Documents
 
 - [ADR 0026: Shell Driver Contracts](../adr/0026-shell-driver-contracts.md)
 - [ADR 0027: Bashkit Driver Integration](../adr/0027-bashkit-driver-integration.md)
 - [Shell Driver Architecture Design](../plans/2026-03-06-shell-driver-architecture-design.md)
-- [BashkitIPCDriver Plan](../plans/2026-03-07-bashkit-ipc-driver.md)
-- [BashkitNativeDriver Plan](../plans/2026-03-07-bashkit-native-driver.md)
+- [Bashkit Integration Revision Plan](../plans/2026-03-09-bashkit-integration-revision.md)
