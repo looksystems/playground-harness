@@ -49,7 +49,6 @@ Design decisions are documented in [docs/adr/](docs/adr/README.md).
 
 Streamed events currently assumes last field is streamed - this needs to be reviewed and api adjusted accordingly.
 
-
 Need to think further about the message bus and whether there should be any convensions re. emtting events vs commands (and tools). Message bus will be a separate package.
 
 Virtual fs/shell could be extracted into separate packages - in particular, the virtual fs/shell could be a high performance core, say in rust with extensibility in the client languages. The bashkit integration uses the `bashkit` PyO3 package for Python (in-process, stateful, with custom command support) and the `bashkit` CLI for TypeScript/PHP (stateless subprocess).
@@ -61,3 +60,5 @@ Need to add support for [open responses](https://www.openresponses.org) ie. crea
 Consider implementing something like [mcpporter](https://github.com/steipete/mcporter) for mcp support.
 
 Consider implementing a todo tool (cf. tick) and a memory tool.
+
+Conside building an event driven workflow layer.
