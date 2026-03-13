@@ -75,6 +75,8 @@ exec("cat /var/log/app.log | grep ERROR | wc -l")
 
 One call replaces three. Not because of special optimization -- because Unix pipes natively support composition.
 
+Anthropic arrived at the same conclusion with [programmatic tool calling](https://www.anthropic.com/engineering/advanced-tool-use): letting the model orchestrate tools through code instead of sequential API calls reduced token usage by 37% and eliminated the inference overhead of 19+ round-trips. The virtual shell takes this further -- composition isn't bolted on via a code sandbox, it's the native interface.
+
 ## Filesystem as context
 
 Instead of building a tool for every query pattern, mount context as files and let the model explore. This idea -- demonstrated by [Vercel's d0 agent](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash) -- improved their task success rates from 80% to 100%.
@@ -178,6 +180,7 @@ CLI isn't a silver bullet. Typed APIs may be better for:
 ## Further reading
 
 - [Virtual Bash Reference](virtual-bash-reference.md) -- complete syntax, command, and feature reference
+- [Advanced Tool Use](https://www.anthropic.com/engineering/advanced-tool-use) -- Anthropic on programmatic tool calling: orchestrating tools through code rather than sequential API calls, reducing token usage by 37% and eliminating round-trip overhead
 - [Context Engineering for AI Agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) -- Manus team on filesystem as externalized memory and context engineering
 - [How to Build Agents with Filesystems and Bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash) -- Vercel's d0 agent demonstrating the approach
 - [ADR-0012: Virtual Shell Architecture](/docs/adr/0012-virtual-shell-architecture.md) -- design decision record
