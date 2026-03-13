@@ -36,6 +36,10 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [TypeScript](docs/guides/typescript.md)
 - [PHP](docs/guides/php.md)
 
+### Concepts
+
+- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why a single `exec` tool with Unix commands beats a catalog of typed function calls
+
 ### Integration Guides
 
 - [Bashkit](docs/guides/bashkit.md) — POSIX shell driver setup, usage, and custom commands
