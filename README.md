@@ -38,7 +38,6 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 
 ### Shell Guides
 
-- [Why Shell/CLI?](docs/guides/why-virtual-bash.md) — Why use a single `exec` tool
 - [Virtual Bash](docs/guides/virtual-bash-reference.md) — Supported syntax, commands, and limitations
 - [Bashkit](docs/guides/bashkit.md) — POSIX shell driver setup, usage, and custom commands
 
