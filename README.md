@@ -29,16 +29,13 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Architecture](docs/architecture.md) — Component internals and composition model
 - [Design Principles](docs/principles.md) — Guiding decisions behind the framework
 - [Comparison](docs/comparison.md) — How each language implementation compares
+- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why a single `exec` tool
 
 ### Language Guides
 
 - [Python](docs/guides/python.md)
 - [TypeScript](docs/guides/typescript.md)
 - [PHP](docs/guides/php.md)
-
-### Concepts
-
-- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why a single `exec` tool with Unix commands beats a catalog of typed function calls
 
 ### Integration Guides
 
