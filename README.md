@@ -28,8 +28,6 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Overview](docs/overview.md) — Key capabilities and architecture diagram
 - [Architecture](docs/architecture.md) — Component internals and composition model
 - [Design Principles](docs/principles.md) — Guiding decisions behind the framework
-- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why use a single `exec` tool
-- [Virtual Bash Reference](docs/guides/virtual-bash-reference.md) — Supported syntax, commands, and limitations
 - [Comparison](docs/comparison.md) — How each language implementation compares
 
 ### Language Guides
@@ -38,8 +36,10 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [TypeScript](docs/guides/typescript.md)
 - [PHP](docs/guides/php.md)
 
-### Integration Guides
+### Shell Guides
 
+- [Why Shell/CLI?](docs/guides/why-virtual-bash.md) — Why use a single `exec` tool
+- [Virtual Bash](docs/guides/virtual-bash-reference.md) — Supported syntax, commands, and limitations
 - [Bashkit](docs/guides/bashkit.md) — POSIX shell driver setup, usage, and custom commands
 
 ### Architecture Decision Records
