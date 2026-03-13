@@ -1320,4 +1320,127 @@ class ShellTest extends TestCase
         $this->expectExceptionMessage('Cannot unregister built-in command');
         $sh->unregisterCommand('echo');
     }
+
+    // -- Pipeline continues on failure --
+
+    public function testPipelineContinuesOnFailure(): void
+    {
+        $sh = $this->makeShell();
+        $r = $sh->exec('false | echo hello');
+        $this->assertSame("hello\n", $r->stdout);
+        $this->assertSame(0, $r->exitCode);
+    }
+
+    public function testPipelineStderrPassthrough(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $r = $sh->exec('errcmd | cat');
+        $this->assertSame("out\n", $r->stdout);
+        $this->assertStringContainsString('err', $r->stderr);
+    }
+
+    public function testPipelineMultiStage(): void
+    {
+        $sh = $this->makeShell();
+        $r = $sh->exec('echo a | false | echo b');
+        $this->assertSame("b\n", $r->stdout);
+        $this->assertSame(0, $r->exitCode);
+    }
+
+    // -- Stdin redirect --
+
+    public function testStdinRedirect(): void
+    {
+        $sh = $this->makeShell();
+        $r = $sh->exec('cat < hello.txt');
+        $this->assertSame("Hello World\n", $r->stdout);
+    }
+
+    public function testStdinRedirectNonexistent(): void
+    {
+        $sh = $this->makeShell();
+        $r = $sh->exec('cat < nonexistent');
+        $this->assertSame(1, $r->exitCode);
+        $this->assertStringContainsString('No such file or directory', $r->stderr);
+    }
+
+    public function testStdinRedirectCombinedWithOutput(): void
+    {
+        $sh = $this->makeShell();
+        $sh->exec('echo "input data" > in.txt');
+        $sh->exec('cat < in.txt > out.txt');
+        $this->assertSame("input data\n", $sh->fs->read('/home/user/out.txt'));
+    }
+
+    // -- Stderr redirect --
+
+    public function testStderrRedirectToFile(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $r = $sh->exec('errcmd 2> err.txt');
+        $this->assertSame("out\n", $r->stdout);
+        $this->assertSame('', $r->stderr);
+        $this->assertSame("err\n", $sh->fs->read('/home/user/err.txt'));
+    }
+
+    public function testStderrRedirectAppend(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $sh->exec('errcmd 2> err.txt');
+        $sh->exec('errcmd 2>> err.txt');
+        $this->assertSame("err\nerr\n", $sh->fs->read('/home/user/err.txt'));
+    }
+
+    public function testStderrDupToStdout(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $r = $sh->exec('errcmd 2>&1');
+        $this->assertSame("out\nerr\n", $r->stdout);
+        $this->assertSame('', $r->stderr);
+    }
+
+    public function testStderrDupPipedToGrep(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $r = $sh->exec('errcmd 2>&1 | grep err');
+        $this->assertStringContainsString('err', $r->stdout);
+    }
+
+    public function testRedirectBothToFile(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $sh->exec('errcmd &> all.txt');
+        $content = $sh->fs->read('/home/user/all.txt');
+        $this->assertStringContainsString('out', $content);
+        $this->assertStringContainsString('err', $content);
+    }
+
+    public function testSeparateStdoutAndStderrFiles(): void
+    {
+        $sh = $this->makeShell();
+        $sh->registerCommand('errcmd', function (array $args, string $stdin): ExecResult {
+            return new ExecResult(stdout: "out\n", stderr: "err\n", exitCode: 0);
+        });
+        $sh->exec('errcmd > out.txt 2> err.txt');
+        $this->assertSame("out\n", $sh->fs->read('/home/user/out.txt'));
+        $this->assertSame("err\n", $sh->fs->read('/home/user/err.txt'));
+    }
 }

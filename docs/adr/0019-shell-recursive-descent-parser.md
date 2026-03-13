@@ -18,7 +18,7 @@ Replace the ad-hoc splitting helpers with a hand-rolled tokenizer and recursive-
 
 ### Tokenizer
 
-Produces typed tokens: `WORD`, `PIPE`, `SEMI`, `DSEMI` (`;;`), `AND` (`&&`), `OR` (`||`), `REDIRECT_OUT` (`>`), `REDIRECT_APPEND` (`>>`), `LPAREN`, `RPAREN`, `NEWLINE`, `EOF`. Handles single/double quotes, `$VAR`/`${VAR}`, `$(...)` nesting (paren counting), and backtick command substitution.
+Produces typed tokens: `WORD`, `PIPE`, `SEMI`, `DSEMI` (`;;`), `AND` (`&&`), `OR` (`||`), `REDIRECT_OUT` (`>`), `REDIRECT_APPEND` (`>>`), `REDIRECT_IN` (`<`), `REDIRECT_ERR_OUT` (`2>`), `REDIRECT_ERR_APPEND` (`2>>`), `REDIRECT_ERR_DUP` (`2>&1`), `REDIRECT_BOTH_OUT` (`&>`, `>&`), `LPAREN`, `RPAREN`, `NEWLINE`, `EOF`. Handles single/double quotes, `$VAR`/`${VAR}`, `$(...)` nesting (paren counting), and backtick command substitution.
 
 ### Grammar (recursive descent)
 
@@ -27,7 +27,10 @@ list        :=  and_or (';' and_or)*
 and_or      :=  pipeline ('&&' pipeline | '||' pipeline)*
 pipeline    :=  command ('|' command)*
 command     :=  if_clause | for_clause | while_clause | case_clause | simple_cmd | assignment
-simple_cmd  :=  WORD args* redirects*
+simple_cmd  :=  WORD args* redirect*
+redirect    :=  '>' WORD | '>>' WORD | '<' WORD
+              | '2>' WORD | '2>>' WORD | '2>&1'
+              | '&>' WORD | '>&' WORD
 ```
 
 ### AST Node Types

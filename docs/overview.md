@@ -13,7 +13,7 @@ Agent Harness provides a small set of well-defined building blocks that can be m
 - **Skills** — Mountable capability bundles combining tools, instructions, middleware, hooks, and lifecycle management. Skills subsume slash commands -- any command is just a skill with a single tool.
 - **Event emission** — The LLM emits structured YAML events inline in text, which are parsed and routed through a message bus.
 - **Streaming events** — Configurable buffered or streaming event delivery.
-- **Virtual shell** — In-memory filesystem and shell interpreter giving agents a single `exec` tool for context exploration via standard Unix commands. Supports 30 built-in commands, control flow (`if/elif/else`, `for`, `while`, `case`), logical operators (`&&`, `||`), variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion, and `printf`. Extensible with custom commands via `registerCommand()`. Pure emulation with no real shell or filesystem access.
+- **Virtual shell** — In-memory filesystem and shell interpreter giving agents a single `exec` tool for context exploration via standard Unix commands. Supports 30 built-in commands, control flow (`if/elif/else`, `for`, `while`, `case`), logical operators (`&&`, `||`), pipes (`|`) with stderr passthrough, input/output/stderr redirects (`<`, `>`, `>>`, `2>`, `2>>`, `2>&1`, `&>`), variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion, and `printf`. Extensible with custom commands via `registerCommand()`. Pure emulation with no real shell or filesystem access.
 - **Shell drivers** — Swappable shell backends via `FilesystemDriver` and `ShellDriver` contracts. Built-in driver uses the pure-language shell; optional drivers (e.g., bashkit) can provide POSIX compliance and native performance. Global default with per-agent override via `AgentBuilder.driver()`.
 
 ## Architecture Overview
@@ -61,6 +61,8 @@ Language-specific guides with setup instructions and examples:
 ## Further Reading
 
 - [Architecture](architecture.md) — detailed component design and data flow
+- [Virtual Bash Reference](guides/virtual-bash-reference.md) — supported syntax, commands, and limitations
+- [Why Virtual Bash](guides/why-virtual-bash.md) — design rationale for the single-exec-tool approach
 - [Principles](principles.md) — design philosophy and constraints
 - [Comparison](comparison.md) — cross-language comparison
 - [ADRs](adr/) — architecture decision records

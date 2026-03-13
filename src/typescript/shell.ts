@@ -43,6 +43,11 @@ type TokenType =
   | "OR"
   | "REDIRECT_OUT"
   | "REDIRECT_APPEND"
+  | "REDIRECT_IN"
+  | "REDIRECT_ERR_OUT"
+  | "REDIRECT_ERR_APPEND"
+  | "REDIRECT_ERR_DUP"
+  | "REDIRECT_BOTH_OUT"
   | "LPAREN"
   | "RPAREN"
   | "NEWLINE"
@@ -102,13 +107,28 @@ function tokenize(input: string): Token[] {
       i += 2; continue;
     }
 
+    if (c === "&" && input[i + 1] === ">") {
+      tokens.push({ type: "REDIRECT_BOTH_OUT", value: "&>" });
+      i += 2; continue;
+    }
+
     if (c === ">" && input[i + 1] === ">") {
       tokens.push({ type: "REDIRECT_APPEND", value: ">>" });
       i += 2; continue;
     }
 
+    if (c === ">" && input[i + 1] === "&") {
+      tokens.push({ type: "REDIRECT_BOTH_OUT", value: ">&" });
+      i += 2; continue;
+    }
+
     if (c === ">") {
       tokens.push({ type: "REDIRECT_OUT", value: ">" });
+      i++; continue;
+    }
+
+    if (c === "<") {
+      tokens.push({ type: "REDIRECT_IN", value: "<" });
       i++; continue;
     }
 
@@ -126,6 +146,23 @@ function tokenize(input: string): Token[] {
     if (c === "#") {
       while (i < input.length && input[i] !== "\n") i++;
       continue;
+    }
+
+    if (c === "2" && i + 1 < input.length && input[i + 1] === ">") {
+      const prev = i > 0 ? input[i - 1] : " ";
+      if (" \t\n|;&()".includes(prev)) {
+        if (input[i + 2] === ">") {  // 2>>
+          tokens.push({ type: "REDIRECT_ERR_APPEND", value: "2>>" });
+          i += 3; continue;
+        }
+        if (input[i + 2] === "&" && input[i + 3] === "1") {  // 2>&1
+          tokens.push({ type: "REDIRECT_ERR_DUP", value: "2>&1" });
+          i += 4; continue;
+        }
+        // plain 2>
+        tokens.push({ type: "REDIRECT_ERR_OUT", value: "2>" });
+        i += 2; continue;
+      }
     }
 
     // Word (includes quoted strings, $(...), `...`, ${...}, $VAR)
@@ -252,7 +289,7 @@ function tokenize(input: string): Token[] {
 interface CommandNode {
   type: "command";
   args: string[];
-  redirects: { mode: "write" | "append"; target: string }[];
+  redirects: { mode: "write" | "append" | "read"; target: string; fd?: 1 | 2; dupTarget?: 1; both?: boolean }[];
 }
 
 interface PipelineNode {
@@ -480,7 +517,7 @@ class Parser {
 
   private parseSimpleCommand(): ASTNode {
     const args: string[] = [];
-    const redirects: { mode: "write" | "append"; target: string }[] = [];
+    const redirects: { mode: "write" | "append" | "read"; target: string; fd?: 1 | 2; dupTarget?: 1; both?: boolean }[] = [];
 
     while (!this.isCommandTerminator()) {
       const t = this.peek();
@@ -493,6 +530,25 @@ class Parser {
         this.advance();
         const target = this.expect("WORD");
         redirects.push({ mode: "write", target: target.value });
+      } else if (t.type === "REDIRECT_IN") {
+        this.advance();
+        const target = this.expect("WORD");
+        redirects.push({ mode: "read", target: target.value });
+      } else if (t.type === "REDIRECT_ERR_OUT") {
+        this.advance();
+        const target = this.expect("WORD");
+        redirects.push({ mode: "write", target: target.value, fd: 2 });
+      } else if (t.type === "REDIRECT_ERR_APPEND") {
+        this.advance();
+        const target = this.expect("WORD");
+        redirects.push({ mode: "append", target: target.value, fd: 2 });
+      } else if (t.type === "REDIRECT_ERR_DUP") {
+        this.advance();
+        redirects.push({ mode: "write", target: "", dupTarget: 1 });
+      } else if (t.type === "REDIRECT_BOTH_OUT") {
+        this.advance();
+        const target = this.expect("WORD");
+        redirects.push({ mode: "write", target: target.value, both: true });
       } else if (t.type === "WORD") {
         args.push(t.value);
         this.advance();
@@ -833,19 +889,62 @@ export class Shell {
       return makeResult("", `${cmdName}: command not found\n`, 127);
     }
 
-    let result = handler(args, stdin);
+    // Process input redirects before calling handler
+    let effectiveStdin = stdin;
+    for (const redir of node.redirects) {
+      if (redir.mode === "read") {
+        const target = this._expandWord(redir.target);
+        const path = this._resolve(target);
+        if (!this.fs.exists(path)) {
+          this.env["?"] = "1";
+          return makeResult("", `${target}: No such file or directory\n`, 1);
+        }
+        effectiveStdin = this.fs.read(path);
+      }
+    }
+
+    let result = handler(args, effectiveStdin);
     this.env["?"] = String(result.exitCode);
 
     for (const redir of node.redirects) {
+      if (redir.mode === "read") continue;
+
+      if (redir.dupTarget === 1) {
+        // 2>&1: merge stderr into stdout
+        result = makeResult(result.stdout + result.stderr, "", result.exitCode);
+        continue;
+      }
+
       const target = this._expandWord(redir.target);
       const path = this._resolve(target);
+
+      if (redir.both) {
+        // &>: write both streams to file
+        const content = result.stdout + result.stderr;
+        if (redir.mode === "append" && this.fs.exists(path)) {
+          const existing = this.fs.read(path);
+          this.fs.write(path, existing + content);
+        } else {
+          this.fs.write(path, content);
+        }
+        result = makeResult("", "", result.exitCode);
+        continue;
+      }
+
+      // Normal fd-targeted redirect
+      const fd = redir.fd ?? 1;
+      const stream = fd === 2 ? result.stderr : result.stdout;
       if (redir.mode === "append" && this.fs.exists(path)) {
         const existing = this.fs.read(path);
-        this.fs.write(path, existing + result.stdout);
+        this.fs.write(path, existing + stream);
       } else {
-        this.fs.write(path, result.stdout);
+        this.fs.write(path, stream);
       }
-      result = makeResult("", result.stderr, result.exitCode);
+      if (fd === 2) {
+        result = makeResult(result.stdout, "", result.exitCode);
+      } else {
+        result = makeResult("", result.stderr, result.exitCode);
+      }
     }
 
     return result;
@@ -854,15 +953,16 @@ export class Shell {
   private _evalPipeline(node: PipelineNode, stdin: string): ExecResult {
     let currentStdin = stdin;
     let lastResult = makeResult();
+    let allStderr = "";
 
     for (const cmd of node.commands) {
       lastResult = this._eval(cmd, currentStdin);
+      allStderr += lastResult.stderr;
       currentStdin = lastResult.stdout;
-      if (lastResult.exitCode !== 0) break;
     }
 
     this.env["?"] = String(lastResult.exitCode);
-    return lastResult;
+    return makeResult(lastResult.stdout, allStderr, lastResult.exitCode);
   }
 
   private _evalList(node: ListNode, stdin: string): ExecResult {

@@ -29,6 +29,7 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0025](0025-fluent-builder-symmetric-apis.md) | Fluent Builder and Symmetric Mixin APIs |
 | [0026](0026-shell-driver-contracts.md) | Shell and Filesystem Driver Contracts |
 | [0027](0027-bashkit-driver-integration.md) | Bashkit Driver Integration |
+| [0028](0028-shell-redirect-pipeline-completeness.md) | Shell Redirect and Pipeline Completeness |
 
 ### Events and Streaming
 

@@ -42,6 +42,11 @@ A single `exec` isn't enough if it can only run one command at a time. The virtu
 | `&&` | And: execute next only if previous succeeded |
 | `\|\|` | Or: execute next only if previous failed |
 | `;` | Seq: execute next regardless |
+| `>`, `>>` | Redirect stdout to file (truncate / append) |
+| `<` | Redirect file into stdin |
+| `2>`, `2>>` | Redirect stderr to file |
+| `2>&1` | Merge stderr into stdout |
+| `&>` | Redirect both streams to file |
 
 One tool call can be a complete workflow:
 
@@ -172,6 +177,7 @@ CLI isn't a silver bullet. Typed APIs may be better for:
 
 ## Further reading
 
+- [Virtual Bash Reference](virtual-bash-reference.md) -- complete syntax, command, and feature reference
 - [Context Engineering for AI Agents](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) -- Manus team on filesystem as externalized memory and context engineering
 - [How to Build Agents with Filesystems and Bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash) -- Vercel's d0 agent demonstrating the approach
 - [ADR-0012: Virtual Shell Architecture](/docs/adr/0012-virtual-shell-architecture.md) -- design decision record

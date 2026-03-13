@@ -562,6 +562,78 @@ class TestShell:
         assert r.stdout.strip() == "text"
 
 
+    # -- Pipeline continues on failure / stderr passthrough ------------------
+
+    def test_pipeline_continues_on_failure(self):
+        r = self.shell.exec("false | echo hello")
+        assert r.stdout == "hello\n"
+        assert r.exit_code == 0
+
+    def test_pipeline_stderr_passthrough(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        r = self.shell.exec("errcmd | cat")
+        assert r.stdout == "out\n"
+        assert r.stderr == "err\n"
+
+    def test_pipeline_three_stage_continues(self):
+        r = self.shell.exec("echo a | false | echo b")
+        assert r.stdout == "b\n"
+        assert r.exit_code == 0
+
+    # -- Stdin redirect tests -----------------------------------------------
+
+    def test_stdin_redirect(self):
+        self.fs.write("/data/in.txt", "file content\n")
+        r = self.shell.exec("cat < /data/in.txt")
+        assert r.stdout == "file content\n"
+
+    def test_stdin_redirect_nonexistent(self):
+        r = self.shell.exec("cat < /nonexistent")
+        assert r.exit_code == 1
+        assert "No such file or directory" in r.stderr
+
+    def test_stdin_redirect_combined_with_output(self):
+        self.fs.write("/data/in.txt", "routed\n")
+        self.shell.exec("cat < /data/in.txt > /tmp/out.txt")
+        assert self.fs.read_text("/tmp/out.txt") == "routed\n"
+
+    # -- Stderr redirect tests ----------------------------------------------
+
+    def test_stderr_redirect_write(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        r = self.shell.exec("errcmd 2> /tmp/err.txt")
+        assert self.fs.read_text("/tmp/err.txt") == "err\n"
+        assert r.stdout == "out\n"
+
+    def test_stderr_redirect_append(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        self.fs.write("/tmp/err.txt", "prev\n")
+        r = self.shell.exec("errcmd 2>> /tmp/err.txt")
+        assert self.fs.read_text("/tmp/err.txt") == "prev\nerr\n"
+
+    def test_stderr_dup_to_stdout(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        r = self.shell.exec("errcmd 2>&1")
+        assert r.stdout == "out\nerr\n"
+        assert r.stderr == ""
+
+    def test_stderr_dup_piped(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        r = self.shell.exec("errcmd 2>&1 | grep err")
+        assert r.stdout == "err\n"
+
+    def test_redirect_both_streams(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        self.shell.exec("errcmd &> /tmp/all.txt")
+        assert self.fs.read_text("/tmp/all.txt") == "out\nerr\n"
+
+    def test_separate_stdout_stderr_redirect(self):
+        self.shell.register_command("errcmd", lambda args, stdin: ExecResult(stdout="out\n", stderr="err\n", exit_code=0))
+        self.shell.exec("errcmd > /tmp/out.txt 2> /tmp/err.txt")
+        assert self.fs.read_text("/tmp/out.txt") == "out\n"
+        assert self.fs.read_text("/tmp/err.txt") == "err\n"
+
+
 class TestShellRegistry:
     def setup_method(self):
         ShellRegistry.reset()

@@ -17,7 +17,7 @@ We need to bring this capability into the harness as a first-class feature while
 Add three standalone components and one convenience mixin:
 
 1. **VirtualFS** — in-memory filesystem (flat key-value store, directories inferred by prefix)
-2. **Shell** — command interpreter over a VirtualFS with recursive-descent parser, AST evaluator, 30 built-in commands, pipes, redirects, control flow (`if/elif/else`, `for`, `while`, `case`), `&&`/`||`, variable assignment, command substitution, arithmetic expansion, and parameter expansion
+2. **Shell** — command interpreter over a VirtualFS with recursive-descent parser, AST evaluator, 30 built-in commands, pipes (with stderr passthrough), input/output/stderr redirects (`<`, `>`, `>>`, `2>`, `2>>`, `2>&1`, `&>`), control flow (`if/elif/else`, `for`, `while`, `case`), `&&`/`||`, variable assignment, command substitution, arithmetic expansion, and parameter expansion
 3. **ShellRegistry** — global singleton for named shell configurations (agents receive clones)
 4. **HasShell** — convenience mixin providing `agent.fs`, `agent.shell`, `agent.exec()`
 

@@ -151,7 +151,7 @@ stateDiagram-v2
 | **StandardAgent** | Pre-composed agent: combines all traits into a ready-to-use agent class. Provides `build(model)` static factory for declarative configuration |
 | **AgentBuilder** | Declarative builder facade: fluent chaining for tools, middleware, hooks, events, skills, shell, and commands. Async `create()` terminal returns a configured `StandardAgent` |
 | **VirtualFS** | In-memory filesystem: flat key-value store, lazy file providers, path normalization, directory inference by prefix |
-| **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes, redirects, `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
+| **Shell** | Command interpreter: 30 built-in commands over a VirtualFS, with a recursive-descent parser producing an AST. Supports pipes (with stderr passthrough), input/output/stderr redirects (`<`, `>`, `>>`, `2>`, `2>>`, `2>&1`, `&>`), `&&`/`||`, `if/elif/else/fi`, `for/while` loops, `case/esac`, variable assignment, command substitution `$(...)`, arithmetic `$((...))`, parameter expansion `${var...}`, `test`/`[`/`[[`, and `printf`. Extensible via `registerCommand()`/`unregisterCommand()` for custom domain-specific commands |
 | **ShellRegistry** | Global singleton: named shell configurations as templates, clone-on-get to isolate agents |
 | **HasShell** | Shell mixin: wires VirtualFS + Shell into the agent, auto-registers `exec` tool, provides `agent.fs`/`agent.shell`/`agent.exec()`, delegates `registerCommand()`/`unregisterCommand()` to the shell. Emits `shell_call`, `shell_result`, `shell_not_found`, and `shell_cwd` hooks when `HasHooks` is also composed |
 | **HasSkills** | Skill mixin: mounts/unmounts capability bundles (`Skill`) that combine tools, instructions, middleware, hooks, and lifecycle management. Resolves skill dependencies transitively. Emits `skill_mount`, `skill_unmount`, `skill_setup`, and `skill_teardown` hooks |
@@ -168,7 +168,7 @@ The shell uses a hand-rolled tokenizer and recursive-descent parser producing a 
 
 - **30 built-in commands** — cat, echo, find, grep, head, ls, pwd, sort, tail, tee, touch, tree, uniq, wc, mkdir, cp, rm, stat, cut, tr, sed, jq, cd, test, `[`, `[[`, printf, export, true, false
 - **Control flow** — `if/elif/else/fi`, `for/in/do/done`, `while/do/done`, `case/in/esac`
-- **Operators** — pipes (`|`), redirects (`>`, `>>`), semicolons (`;`), `&&`, `||`
+- **Operators** — pipes (`|`), output redirects (`>`, `>>`), input redirect (`<`), stderr redirects (`2>`, `2>>`, `2>&1`, `&>`), semicolons (`;`), `&&`, `||`
 - **Expansion** — `$VAR`, `${var:-default}`, `${#var}`, `${var//pat/repl}`, `$(cmd)`, `$((expr))`, backticks
 - **Custom commands** — `registerCommand(name, handler)` to add domain-specific commands, `unregisterCommand(name)` to remove them. Custom commands compose with pipes, redirects, and control flow like built-ins. Survive `clone()`.
 - **Safety limits** — max iterations (10,000), command substitution depth (10), variable size (64KB), expansion cap (1,000), parser nesting depth (50)

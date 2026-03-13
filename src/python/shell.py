@@ -79,13 +79,28 @@ def tokenize(input_str: str) -> list[Token]:
             i += 2
             continue
 
+        if c == "&" and i + 1 < n and input_str[i + 1] == ">":
+            tokens.append(Token("REDIRECT_BOTH_OUT", "&>"))
+            i += 2
+            continue
+
         if c == ">" and i + 1 < n and input_str[i + 1] == ">":
             tokens.append(Token("REDIRECT_APPEND", ">>"))
             i += 2
             continue
 
+        if c == ">" and i + 1 < n and input_str[i + 1] == "&":
+            tokens.append(Token("REDIRECT_BOTH_OUT", ">&"))
+            i += 2
+            continue
+
         if c == ">":
             tokens.append(Token("REDIRECT_OUT", ">"))
+            i += 1
+            continue
+
+        if c == "<":
+            tokens.append(Token("REDIRECT_IN", "<"))
             i += 1
             continue
 
@@ -104,6 +119,22 @@ def tokenize(input_str: str) -> list[Token]:
             while i < n and input_str[i] != "\n":
                 i += 1
             continue
+
+        if c == "2" and i + 1 < n and input_str[i + 1] == ">":
+            prev = input_str[i - 1] if i > 0 else " "
+            if prev in " \t\n|;&()":
+                if i + 2 < n and input_str[i + 2] == ">":  # 2>>
+                    tokens.append(Token("REDIRECT_ERR_APPEND", "2>>"))
+                    i += 3
+                    continue
+                if i + 2 < n and input_str[i + 2] == "&" and i + 3 < n and input_str[i + 3] == "1":  # 2>&1
+                    tokens.append(Token("REDIRECT_ERR_DUP", "2>&1"))
+                    i += 4
+                    continue
+                # plain 2>
+                tokens.append(Token("REDIRECT_ERR_OUT", "2>"))
+                i += 2
+                continue
 
         # Word (includes quoted strings, $(...), `...`, ${...}, $VAR)
         word = ""
@@ -239,8 +270,11 @@ def tokenize(input_str: str) -> list[Token]:
 
 @dataclass
 class Redirect:
-    mode: str  # "write" or "append"
+    mode: str  # "write", "append", or "read"
     target: str
+    fd: int = 1       # which fd to redirect (1=stdout, 2=stderr)
+    dup_target: int = 0  # for 2>&1: dup stderr to stdout
+    both: bool = False   # for &>: redirect both streams
 
 
 @dataclass
@@ -456,6 +490,25 @@ class Parser:
                 self._advance()
                 target = self._expect("WORD")
                 redirects.append(Redirect(mode="write", target=target.value))
+            elif t.type == "REDIRECT_IN":
+                self._advance()
+                target = self._expect("WORD")
+                redirects.append(Redirect(mode="read", target=target.value))
+            elif t.type == "REDIRECT_ERR_OUT":
+                self._advance()
+                target = self._expect("WORD")
+                redirects.append(Redirect(mode="write", target=target.value, fd=2))
+            elif t.type == "REDIRECT_ERR_APPEND":
+                self._advance()
+                target = self._expect("WORD")
+                redirects.append(Redirect(mode="append", target=target.value, fd=2))
+            elif t.type == "REDIRECT_ERR_DUP":
+                self._advance()
+                redirects.append(Redirect(mode="write", target="", dup_target=1))
+            elif t.type == "REDIRECT_BOTH_OUT":
+                self._advance()
+                target = self._expect("WORD")
+                redirects.append(Redirect(mode="write", target=target.value, both=True))
             elif t.type == "WORD":
                 args.append(t.value)
                 self._advance()
@@ -772,33 +825,70 @@ class Shell:
                 self.on_not_found(cmd_name)
             return ExecResult(stderr=f"{cmd_name}: command not found\n", exit_code=127)
 
-        result = handler(args, stdin)
+        # Process input redirects before calling handler
+        effective_stdin = stdin
+        for redir in node.redirects:
+            if redir.mode == "read":
+                target = self._expand_word(redir.target)
+                path = self._resolve(target)
+                if not self.fs.exists(path):
+                    self.env["?"] = "1"
+                    return ExecResult(stderr=f"{target}: No such file or directory\n", exit_code=1)
+                effective_stdin = self.fs.read_text(path)
+
+        result = handler(args, effective_stdin)
         self.env["?"] = str(result.exit_code)
 
         for redir in node.redirects:
+            if redir.mode == "read":
+                continue
+
+            if redir.dup_target == 1:
+                # 2>&1: merge stderr into stdout
+                result = ExecResult(stdout=result.stdout + result.stderr, exit_code=result.exit_code)
+                continue
+
             target = self._expand_word(redir.target)
             path = self._resolve(target)
+
+            if redir.both:
+                # &>: write both streams to file
+                content = result.stdout + result.stderr
+                if redir.mode == "append" and self.fs.exists(path):
+                    existing = self.fs.read_text(path)
+                    self.fs.write(path, existing + content)
+                else:
+                    self.fs.write(path, content)
+                result = ExecResult(exit_code=result.exit_code)
+                continue
+
+            # Normal fd-targeted redirect
+            fd = redir.fd
+            stream = result.stderr if fd == 2 else result.stdout
             if redir.mode == "append" and self.fs.exists(path):
                 existing = self.fs.read_text(path)
-                self.fs.write(path, existing + result.stdout)
+                self.fs.write(path, existing + stream)
             else:
-                self.fs.write(path, result.stdout)
-            result = ExecResult(stderr=result.stderr, exit_code=result.exit_code)
+                self.fs.write(path, stream)
+            if fd == 2:
+                result = ExecResult(stdout=result.stdout, exit_code=result.exit_code)
+            else:
+                result = ExecResult(stderr=result.stderr, exit_code=result.exit_code)
 
         return result
 
     def _eval_pipeline(self, node: PipelineNode, stdin: str) -> ExecResult:
         current_stdin = stdin
         last_result = ExecResult()
+        all_stderr = ""
 
         for cmd in node.commands:
             last_result = self._eval(cmd, current_stdin)
+            all_stderr += last_result.stderr
             current_stdin = last_result.stdout
-            if last_result.exit_code != 0:
-                break
 
         self.env["?"] = str(last_result.exit_code)
-        return last_result
+        return ExecResult(stdout=last_result.stdout, stderr=all_stderr, exit_code=last_result.exit_code)
 
     def _eval_list(self, node: ListNode, stdin: str) -> ExecResult:
         results: list[ExecResult] = []

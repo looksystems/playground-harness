@@ -1111,6 +1111,109 @@ describe("Shell", () => {
       expect(r.exitCode).toBe(0);
     });
   });
+
+  describe("pipeline continues on failure", () => {
+    it("false | echo hello", () => {
+      const sh = makeShell();
+      const r = sh.exec("false | echo hello");
+      expect(r.stdout).toBe("hello\n");
+      expect(r.exitCode).toBe(0);
+    });
+
+    it("preserves stderr from pipeline stages", () => {
+      const sh = makeShell();
+      sh.registerCommand("errcmd", (_args, _stdin) => ({
+        stdout: "out\n",
+        stderr: "err\n",
+        exitCode: 0,
+      }));
+      const r = sh.exec("errcmd | cat");
+      expect(r.stderr).toBe("err\n");
+    });
+
+    it("echo a | false | echo b", () => {
+      const sh = makeShell();
+      const r = sh.exec("echo a | false | echo b");
+      expect(r.stdout).toBe("b\n");
+      expect(r.exitCode).toBe(0);
+    });
+  });
+
+  describe("stdin redirect <", () => {
+    it("cat < /file.txt reads file content", () => {
+      const sh = makeShell({ "/file.txt": "hello from file\n" });
+      const r = sh.exec("cat < /file.txt");
+      expect(r.stdout).toBe("hello from file\n");
+      expect(r.exitCode).toBe(0);
+    });
+
+    it("cat < /nonexistent returns error", () => {
+      const sh = makeShell();
+      const r = sh.exec("cat < /nonexistent");
+      expect(r.stderr).toContain("No such file or directory");
+      expect(r.exitCode).toBe(1);
+    });
+
+    it("cat < /in.txt > /out.txt combined input+output redirect", () => {
+      const sh = makeShell({ "/in.txt": "transferred\n" });
+      sh.exec("cat < /in.txt > /out.txt");
+      expect(sh.fs.read("/out.txt")).toBe("transferred\n");
+    });
+  });
+
+  describe("stderr redirect", () => {
+    function makeShellWithErrcmd(files?: Record<string, string>) {
+      const sh = makeShell(files);
+      sh.registerCommand("errcmd", (_args, _stdin) => ({
+        stdout: "out\n",
+        stderr: "err\n",
+        exitCode: 0,
+      }));
+      return sh;
+    }
+
+    it("2> redirects stderr to file", () => {
+      const sh = makeShellWithErrcmd();
+      const r = sh.exec("errcmd 2> /err.txt");
+      expect(r.stdout).toBe("out\n");
+      expect(r.stderr).toBe("");
+      expect(sh.fs.read("/err.txt")).toBe("err\n");
+    });
+
+    it("2>> appends stderr to file", () => {
+      const sh = makeShellWithErrcmd({ "/err.txt": "prev\n" });
+      sh.exec("errcmd 2>> /err.txt");
+      expect(sh.fs.read("/err.txt")).toBe("prev\nerr\n");
+    });
+
+    it("2>&1 merges stderr into stdout", () => {
+      const sh = makeShellWithErrcmd();
+      const r = sh.exec("errcmd 2>&1");
+      expect(r.stdout).toBe("out\nerr\n");
+      expect(r.stderr).toBe("");
+    });
+
+    it("2>&1 | grep pipes merged stream", () => {
+      const sh = makeShellWithErrcmd();
+      const r = sh.exec("errcmd 2>&1 | grep err");
+      expect(r.stdout).toBe("err\n");
+    });
+
+    it("&> redirects both streams to file", () => {
+      const sh = makeShellWithErrcmd();
+      const r = sh.exec("errcmd &> /all.txt");
+      expect(sh.fs.read("/all.txt")).toBe("out\nerr\n");
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("");
+    });
+
+    it("> /out.txt 2> /err.txt separates streams to files", () => {
+      const sh = makeShellWithErrcmd();
+      sh.exec("errcmd > /out.txt 2> /err.txt");
+      expect(sh.fs.read("/out.txt")).toBe("out\n");
+      expect(sh.fs.read("/err.txt")).toBe("err\n");
+    });
+  });
 });
 
 describe("ShellRegistry", () => {
