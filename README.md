@@ -57,7 +57,7 @@ Need to add support for LLM gateways including rate limits, retries, observabili
 
 Need to add support for [open responses](https://www.openresponses.org) ie. create common classes or use standard libraries.
 
-Consider implementing something like [mcpporter](https://github.com/steipete/mcporter) for mcp support.
+Consider implementing something like [mcpporter](https://github.com/steipete/mcporter) or [mcp2cli](https://github.com/knowsuchagency/mcp2cli) for mcp support.
 
 Consider implementing a todo tool (cf. tick) and a memory tool.
 
