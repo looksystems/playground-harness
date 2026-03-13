@@ -29,7 +29,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Architecture](docs/architecture.md) — Component internals and composition model
 - [Design Principles](docs/principles.md) — Guiding decisions behind the framework
 - [Comparison](docs/comparison.md) — How each language implementation compares
-- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why a single `exec` tool
+- [Why Virtual Bash](docs/guides/why-virtual-bash.md) — Why use a single `exec` tool
 
 ### Language Guides
 
