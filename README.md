@@ -61,4 +61,6 @@ Consider implementing something like [mcpporter](https://github.com/steipete/mcp
 
 Consider implementing a todo tool (cf. tick) and a memory tool.
 
-Conside building an event driven workflow layer.
+Consider building an event driven workflow layer.
+
+Consider implementing or integration something like [context mode](https://github.com/mksglu/context-mode) for better context management.
