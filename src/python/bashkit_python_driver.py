@@ -9,9 +9,9 @@ from src.python.drivers import ShellDriver, FilesystemDriver, BuiltinFilesystemD
 from src.python.shell import ExecResult
 from src.python._remote_sync import (
     DirtyTrackingFS,
-    SYNC_BACK_SCRIPT,
     build_sync_preamble,
-    parse_file_listing,
+    build_sync_epilogue,
+    parse_sync_output,
     apply_sync_back,
 )
 
@@ -113,23 +113,17 @@ class BashkitPythonDriver(ShellDriver):
     def exec(self, command: str) -> ExecResult:
         """Execute a command via bashkit with preamble/epilogue VFS sync."""
         executor = self._get_executor()
-
-        # Sync dirty files to bashkit
-        sync_commands = build_sync_preamble(self._fs_driver)
-        if sync_commands:
-            preamble = " && ".join(sync_commands)
-            executor.execute_sync(preamble)
-
-        result = executor.execute_sync(command)
-
-        # Sync files back from bashkit
-        sync_result = executor.execute_sync(SYNC_BACK_SCRIPT)
-        if sync_result.exit_code == 0:
-            remote_files = parse_file_listing(sync_result.stdout or "")
-            apply_sync_back(self._fs_driver, remote_files)
-
+        preamble = build_sync_preamble(self._fs_driver)
+        marker = self._marker_factory()
+        epilogue = build_sync_epilogue(marker)
+        full = f"{preamble} && {command}{epilogue}" if preamble else f"{command}{epilogue}"
+        result = executor.execute_sync(full)
+        raw_stdout = result.stdout or ""
+        stdout, files = parse_sync_output(raw_stdout, marker)
+        if files is not None:
+            apply_sync_back(self._fs_driver, files)
         return ExecResult(
-            stdout=result.stdout or "",
+            stdout=stdout,
             stderr=result.stderr or "",
             exit_code=result.exit_code or 0,
         )

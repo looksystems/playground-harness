@@ -2,6 +2,7 @@
  * BashkitDriver: resolves to BashkitCLIDriver.
  */
 
+import { execSync } from "child_process";
 import {
   type ShellDriver,
   ShellDriverFactory,
@@ -33,7 +34,6 @@ export class BashkitDriver {
   /** Check if bashkit is on PATH. */
   private static _checkCli(): boolean {
     try {
-      const { execSync } = require("child_process");
       execSync("which bashkit", { stdio: "ignore" });
       return true;
     } catch {

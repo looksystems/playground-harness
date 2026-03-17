@@ -36,9 +36,9 @@ class BashkitDriverTest extends TestCase
 
     public function testResolveWithExecOverrideReturnsCLIDriver(): void
     {
-        $driver = BashkitDriver::resolve(
-            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
-        );
+        $driver = BashkitDriver::resolve([
+            'execOverride' => fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        ]);
         $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
         $this->assertInstanceOf(ShellDriverInterface::class, $driver);
     }
@@ -52,12 +52,12 @@ class BashkitDriverTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('bashkit not found');
 
-        BashkitDriver::resolve(cliPath: null);
+        BashkitDriver::resolve(['cliPath' => null]);
     }
 
     public function testResolveReturnsCLIDriverWhenCliPathProvided(): void
     {
-        $driver = BashkitDriver::resolve(cliPath: '/usr/local/bin/bashkit');
+        $driver = BashkitDriver::resolve(['cliPath' => '/usr/local/bin/bashkit']);
         $this->assertInstanceOf(BashkitCLIDriver::class, $driver);
     }
 

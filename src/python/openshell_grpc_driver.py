@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -108,6 +109,7 @@ class OpenShellGrpcDriver(ShellDriver):
             capture_output=True,
             text=True,
             timeout=30,
+            env={**os.environ, **self._env},
         )
         return {
             "stdout": result.stdout,
@@ -164,13 +166,12 @@ class OpenShellGrpcDriver(ShellDriver):
 
     def exec(self, command: str) -> ExecResult:
         """Execute a command in the OpenShell sandbox."""
-        marker = f"__HARNESS_FS_SYNC_{id(self)}__"
+        marker = f"__HARNESS_FS_SYNC_{os.urandom(8).hex()}__"
 
         if self._grpc_override is not None:
             # Mock mode: use standard sync
-            preamble_commands = build_sync_preamble(self._fs_driver)
+            preamble = build_sync_preamble(self._fs_driver)
             epilogue = build_sync_epilogue(marker)
-            preamble = " && ".join(preamble_commands) if preamble_commands else ""
         else:
             # Real mode: remap paths to workspace
             preamble_parts: list[str] = [f"mkdir -p {self._workspace}"]
@@ -207,8 +208,8 @@ class OpenShellGrpcDriver(ShellDriver):
 
         return ExecResult(
             stdout=stdout,
-            stderr=raw.get("stderr", ""),
-            exit_code=raw.get("exitCode", 0),
+            stderr=raw["stderr"],
+            exit_code=raw["exitCode"],
         )
 
     def register_command(self, name: str, handler: Callable) -> None:

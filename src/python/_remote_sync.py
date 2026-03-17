@@ -69,13 +69,13 @@ class DirtyTrackingFS(FilesystemDriver):
         return DirtyTrackingFS(self._inner.clone())
 
 
-def build_sync_preamble(fs_driver: DirtyTrackingFS) -> list[str]:
+def build_sync_preamble(fs_driver: DirtyTrackingFS) -> str:
     """Build shell commands to sync dirty VFS files to a remote shell.
 
     Clears the dirty set after building.
 
     Returns:
-        List of shell commands (each writes or removes one file).
+        Shell commands joined with ` && `, or empty string if nothing dirty.
     """
     commands: list[str] = []
     for path in list(fs_driver.dirty):
@@ -88,7 +88,7 @@ def build_sync_preamble(fs_driver: DirtyTrackingFS) -> list[str]:
         elif not fs_driver.exists(path):
             commands.append(f"rm -f '{path}'")
     fs_driver.clear_dirty()
-    return commands
+    return " && ".join(commands) if commands else ""
 
 
 def build_sync_epilogue(marker: str, root: str = "/") -> str:

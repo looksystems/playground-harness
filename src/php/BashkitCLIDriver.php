@@ -103,11 +103,6 @@ class BashkitCLIDriver implements ShellDriverInterface
         unset($this->commands[$name]);
     }
 
-    public function hasCommand(string $name): bool
-    {
-        return isset($this->commands[$name]);
-    }
-
     public function capabilities(): array
     {
         return ['custom_commands', 'remote'];

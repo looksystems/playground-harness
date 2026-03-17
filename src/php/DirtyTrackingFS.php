@@ -49,7 +49,7 @@ class DirtyTrackingFS implements FilesystemDriver
     public function find(string $root = '/', string $pattern = '*'): array { return $this->inner->find($root, $pattern); }
     public function stat(string $path): array { return $this->inner->stat($path); }
 
-    public function cloneFs(): FilesystemDriver
+    public function cloneFs(): self
     {
         return new self($this->inner->cloneFs());
     }

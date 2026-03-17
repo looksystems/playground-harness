@@ -6,26 +6,31 @@ namespace AgentHarness;
 
 class OpenShellDriver
 {
-    public static function resolve(
-        ?\Closure $execOverride = null,
-        ?string $endpoint = 'localhost:50051',
-    ): ShellDriverInterface {
+    private const DRIVER_PARAMS = [
+        'cwd', 'env', 'execOverride', 'endpoint', 'sandboxId',
+        'policy', 'sshHost', 'sshPort', 'sshUser', 'workspace',
+    ];
+
+    public static function resolve(array $opts = []): ShellDriverInterface
+    {
+        $execOverride = $opts['execOverride'] ?? null;
+        $driverOpts = array_intersect_key($opts, array_flip(self::DRIVER_PARAMS));
         if ($execOverride !== null) {
-            return new OpenShellGrpcDriver(execOverride: $execOverride, endpoint: $endpoint);
+            return new OpenShellGrpcDriver(...$driverOpts);
         }
-        // Check if grpc extension is loaded
-        if (!extension_loaded('grpc')) {
+        $sshPath = trim((string) shell_exec('which ssh 2>/dev/null'));
+        if ($sshPath === '') {
             throw new \RuntimeException(
-                'grpc extension not found — install with: pecl install grpc'
+                'ssh not found — OpenShell driver requires SSH for execution'
             );
         }
-        return new OpenShellGrpcDriver(endpoint: $endpoint);
+        return new OpenShellGrpcDriver(...$driverOpts);
     }
 
     public static function register(): void
     {
         ShellDriverFactory::register('openshell', function (array $opts = []): ShellDriverInterface {
-            return self::resolve();
+            return self::resolve($opts);
         });
     }
 }

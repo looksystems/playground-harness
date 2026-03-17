@@ -84,15 +84,13 @@ class TestOpenShellDriverResolve:
         driver = OpenShellDriver.resolve(grpc_override=mock)
         assert isinstance(driver, OpenShellGrpcDriver)
 
-    def test_resolve_without_grpcio_raises_runtime_error(self):
-        # Without grpc_override and without grpcio installed, should raise
-        import importlib
-        try:
-            import grpc
-            pytest.skip("grpcio is installed")
-        except ImportError:
-            with pytest.raises(RuntimeError, match="grpcio not found"):
-                OpenShellDriver.resolve()
+    def test_resolve_without_ssh_raises_runtime_error(self):
+        # Without grpc_override and without ssh available, should raise
+        import shutil
+        if shutil.which("ssh") is not None:
+            pytest.skip("ssh is available")
+        with pytest.raises(RuntimeError, match="ssh not found"):
+            OpenShellDriver.resolve()
 
 
 class TestRegisterOpenShellDriver:
@@ -175,7 +173,7 @@ class TestOpenShellGrpcDriverExec:
         def custom_exec(sandbox_id, command):
             # Extract marker from command
             import re
-            m = re.search(r'__HARNESS_FS_SYNC_\d+__', command)
+            m = re.search(r'__HARNESS_FS_SYNC_[0-9a-f]+__', command)
             marker = m.group(0) if m else ""
             stdout = f"hello{_make_sync_output(marker, {'/result.txt': 'from sandbox'})}"
             return MockExecResult(stdout=stdout)

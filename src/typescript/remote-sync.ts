@@ -13,14 +13,14 @@ import {
 } from "./drivers.js";
 
 export class DirtyTrackingFS implements FilesystemDriver {
-  private _inner: BuiltinFilesystemDriver;
+  private _inner: FilesystemDriver;
   private _dirty: Set<string> = new Set();
 
-  constructor(inner: BuiltinFilesystemDriver) {
+  constructor(inner: FilesystemDriver) {
     this._inner = inner;
   }
 
-  get inner(): BuiltinFilesystemDriver { return this._inner; }
+  get inner(): FilesystemDriver { return this._inner; }
   get dirty(): Set<string> { return this._dirty; }
   clearDirty(): void { this._dirty.clear(); }
 

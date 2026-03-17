@@ -53,6 +53,24 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         $this->workspace = $workspace;
     }
 
+    private function ensureSandbox(): void
+    {
+        if ($this->sandboxId !== null) {
+            return;
+        }
+
+        if ($this->execOverride !== null) {
+            $override = $this->execOverride;
+            if (is_object($override) && method_exists($override, 'createSandbox')) {
+                $result = $override->createSandbox($this->policy);
+                $this->sandboxId = $result->sandboxId;
+                return;
+            }
+        }
+
+        $this->sandboxId = "{$this->sshUser}@{$this->sshHost}:{$this->sshPort}";
+    }
+
     public function fs(): FilesystemDriver { return $this->fsDriver; }
     public function cwd(): string { return $this->cwd; }
     public function env(): array { return $this->env; }
@@ -64,6 +82,8 @@ class OpenShellGrpcDriver implements ShellDriverInterface
      */
     private function rawExec(string $command): array
     {
+        $this->ensureSandbox();
+
         if ($this->execOverride !== null) {
             return ($this->execOverride)($command);
         }
@@ -82,7 +102,8 @@ class OpenShellGrpcDriver implements ShellDriverInterface
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
         ];
-        $proc = proc_open($sshCmd, $descriptors, $pipes);
+        $mergedEnv = array_merge(getenv(), $this->env);
+        $proc = proc_open($sshCmd, $descriptors, $pipes, null, $mergedEnv);
         if (!is_resource($proc)) {
             return ['stdout' => '', 'stderr' => 'Failed to spawn ssh', 'exitCode' => 1];
         }
@@ -178,11 +199,6 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         unset($this->commands[$name]);
     }
 
-    public function hasCommand(string $name): bool
-    {
-        return isset($this->commands[$name]);
-    }
-
     public function capabilities(): array
     {
         return ['custom_commands', 'remote', 'policies', 'streaming'];
@@ -190,7 +206,12 @@ class OpenShellGrpcDriver implements ShellDriverInterface
 
     public function close(): void
     {
-        $this->sandboxId = null;
+        if ($this->sandboxId !== null) {
+            if ($this->execOverride !== null && is_object($this->execOverride) && method_exists($this->execOverride, 'deleteSandbox')) {
+                $this->execOverride->deleteSandbox($this->sandboxId);
+            }
+            $this->sandboxId = null;
+        }
     }
 
     public function cloneDriver(): ShellDriverInterface

@@ -98,7 +98,26 @@ export class OpenShellGrpcDriver implements ShellDriver {
     return this._policy;
   }
 
+  private _ensureSandbox(): void {
+    if (this._sandboxId !== null) return;
+
+    if (this._execOverride) {
+      const override = this._execOverride as unknown as {
+        createSandbox?: (policy: OpenShellPolicy) => { sandboxId: string };
+      };
+      if (override.createSandbox) {
+        const result = override.createSandbox(this._policy);
+        this._sandboxId = result.sandboxId;
+        return;
+      }
+    }
+
+    this._sandboxId = `${this._sshUser}@${this._sshHost}:${this._sshPort}`;
+  }
+
   private _rawExec(command: string): { stdout: string; stderr: string; exitCode: number } {
+    this._ensureSandbox();
+
     if (this._execOverride) {
       return this._execOverride(command);
     }
@@ -110,6 +129,7 @@ export class OpenShellGrpcDriver implements ShellDriver {
         "-p", String(this._sshPort),
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
         `${this._sshUser}@${this._sshHost}`,
         command,
       ],
@@ -203,7 +223,17 @@ export class OpenShellGrpcDriver implements ShellDriver {
   }
 
   close(): void {
-    this._sandboxId = null;
+    if (this._sandboxId !== null) {
+      if (this._execOverride) {
+        const override = this._execOverride as unknown as {
+          deleteSandbox?: (sandboxId: string) => void;
+        };
+        if (override.deleteSandbox) {
+          override.deleteSandbox(this._sandboxId);
+        }
+      }
+      this._sandboxId = null;
+    }
   }
 
   clone(): OpenShellGrpcDriver {

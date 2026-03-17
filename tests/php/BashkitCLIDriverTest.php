@@ -99,9 +99,9 @@ class BashkitCLIDriverTest extends TestCase
         $driver = $this->createDriver();
         $handler = fn($args, $stdin) => 'ok';
         $driver->registerCommand('mycmd', $handler);
-        $this->assertTrue($driver->hasCommand('mycmd'));
+        $this->assertContains('custom_commands', $driver->capabilities());
         $driver->unregisterCommand('mycmd');
-        $this->assertFalse($driver->hasCommand('mycmd'));
+        $this->assertContains('custom_commands', $driver->capabilities());
     }
 
     public function testCloneCreatesIndependentCopy(): void

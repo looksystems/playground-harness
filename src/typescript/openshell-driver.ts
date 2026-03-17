@@ -2,6 +2,7 @@
  * OpenShellDriver: resolves to OpenShellGrpcDriver.
  */
 
+import { execSync } from "child_process";
 import {
   type ShellDriver,
   ShellDriverFactory,
@@ -33,7 +34,6 @@ export class OpenShellDriver {
   /** Check if ssh is on PATH. */
   private static _checkSsh(): boolean {
     try {
-      const { execSync } = require("child_process");
       execSync("which ssh", { stdio: "ignore" });
       return true;
     } catch {
