@@ -2,7 +2,8 @@
   "name": "noodlehq/agent-harness-php",
   "autoload": {
     "psr-4": {
-      "AgentHarness\\": "src/php"
+      "AgentHarness\\": "src/php",
+      "AgentHarness\\Generated\\": "src/php/Generated"
     }
   },
   "autoload-dev": {
@@ -12,7 +13,9 @@
   },
   "require": {
     "php": ">=8.1",
-    "guzzlehttp/guzzle": "^7.0"
+    "guzzlehttp/guzzle": "^7.0",
+    "grpc/grpc": "^1.60",
+    "google/protobuf": "^4.25"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.0"

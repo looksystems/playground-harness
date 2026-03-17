@@ -161,7 +161,9 @@ The only difference is the transport: Python runs in-process via PyO3 (`execute_
 
 ---
 
-## Custom Commands (Python Only)
+## Custom Commands
+
+### Python: Full Shell Integration (ScriptedTool)
 
 Custom commands registered via `register_command()` become bash builtins inside bashkit. They compose with pipes, redirects, and control flow — just like built-in commands.
 
@@ -177,7 +179,21 @@ agent.register_command("summarize", lambda args, stdin: ExecResult(
 result = agent.exec("cat /data.txt | summarize")
 ```
 
-> **Note:** Custom commands are not supported in the TypeScript and PHP `BashkitCLIDriver` because the CLI subprocess cannot call back into the host process.
+### TypeScript / PHP: Local Interception
+
+In TypeScript and PHP, `registerCommand()` enables local interception. The first word of the command string is matched against registered commands. If it matches, the handler is called directly in the host process — the bashkit subprocess is skipped entirely.
+
+```typescript
+driver.registerCommand("mycmd", (args, stdin) => ({
+  stdout: `Got ${args.length} args\n`,
+  stderr: "",
+  exitCode: 0,
+}));
+
+driver.exec("mycmd foo bar"); // handler called with ["foo", "bar"]
+```
+
+**Limitation:** Custom commands in TS/PHP don't compose with pipes or compound expressions. Only simple direct invocations like `mycmd arg1 arg2` are intercepted. Commands like `echo foo | mycmd` or `mycmd && echo done` go to the subprocess as-is.
 
 ---
 
@@ -245,7 +261,7 @@ agent = await (
 |-----------|--------|------------|-----|
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
 | Shell state persistence between exec() | Yes | No | No |
-| Custom command callbacks | Yes (ScriptedTool) | No | No |
+| Custom command callbacks | Yes (ScriptedTool) | Yes (local interception) | Yes (local interception) |
 | VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
 | Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
 
@@ -254,7 +270,7 @@ agent = await (
 ## Limitations
 
 - **TypeScript/PHP shell state is stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls. VFS files do persist via preamble/epilogue sync.
-- **Custom commands only work in Python.** The CLI subprocess can't call back into the host process.
+- **Custom commands differ by language.** Python has full shell integration via `ScriptedTool` (commands compose with pipes and redirects). TypeScript/PHP have local-only interception (first-word match dispatches to registered handler, skipping subprocess). TS/PHP custom commands don't compose with pipes or compound expressions.
 - **Synchronous only.** All drivers block on execution, matching the synchronous `ShellDriver` contract.
 
 ### Related Documents

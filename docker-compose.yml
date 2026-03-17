@@ -1,0 +1,13 @@
+services:
+  openshell-mock:
+    build:
+      context: .
+      dockerfile: tests/openshell-grpc-mock/Dockerfile
+    ports:
+      - "50151:50051"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  sandbox:
+    image: ubuntu:22.04
+    command: ["sleep", "infinity"]

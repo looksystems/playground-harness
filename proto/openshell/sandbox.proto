@@ -1,0 +1,58 @@
+// Vendored from github.com/NVIDIA/OpenShell/proto/sandbox.proto
+syntax = "proto3";
+
+package openshell;
+
+option go_package = "github.com/NVIDIA/OpenShell/proto/openshell";
+
+import "openshell/datamodel.proto";
+
+message CreateSandboxRequest {
+  string name = 1;
+  SandboxSpec spec = 2;
+}
+
+message CreateSandboxResponse {
+  Sandbox sandbox = 1;
+}
+
+message DeleteSandboxRequest {
+  string name = 1;
+}
+
+message DeleteSandboxResponse {}
+
+message GetSandboxRequest {
+  string name = 1;
+}
+
+message GetSandboxResponse {
+  Sandbox sandbox = 1;
+}
+
+message ExecSandboxRequest {
+  string sandbox_id = 1;
+  repeated string command = 2;
+  map<string, string> env = 3;
+  string working_dir = 4;
+}
+
+message ExecSandboxEvent {
+  oneof event {
+    StdoutChunk stdout = 1;
+    StderrChunk stderr = 2;
+    ExitStatus exit = 3;
+  }
+}
+
+message StdoutChunk {
+  bytes data = 1;
+}
+
+message StderrChunk {
+  bytes data = 1;
+}
+
+message ExitStatus {
+  int32 code = 1;
+}

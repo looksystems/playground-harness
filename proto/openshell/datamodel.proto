@@ -1,0 +1,59 @@
+// Vendored from github.com/NVIDIA/OpenShell/proto/datamodel.proto
+syntax = "proto3";
+
+package openshell;
+
+option go_package = "github.com/NVIDIA/OpenShell/proto/openshell";
+
+message SandboxSpec {
+  string image = 1;
+  SandboxPolicy policy = 2;
+  map<string, string> env = 3;
+  string workspace = 4;
+}
+
+message SandboxPolicy {
+  FilesystemPolicy filesystem = 1;
+  repeated NetworkPolicy network_policies = 2;
+  InferencePolicy inference = 3;
+}
+
+message FilesystemPolicy {
+  repeated string read_only = 1;
+  repeated string read_write = 2;
+}
+
+message NetworkPolicy {
+  string cidr = 1;
+  Action action = 2;
+
+  enum Action {
+    ALLOW = 0;
+    DENY = 1;
+  }
+}
+
+message InferencePolicy {
+  bool routing_enabled = 1;
+  string provider = 2;
+}
+
+message Sandbox {
+  string name = 1;
+  string sandbox_id = 2;
+  SandboxSpec spec = 3;
+  SandboxStatus status = 4;
+}
+
+message SandboxStatus {
+  Phase phase = 1;
+  string message = 2;
+
+  enum Phase {
+    UNKNOWN = 0;
+    PENDING = 1;
+    RUNNING = 2;
+    STOPPED = 3;
+    FAILED = 4;
+  }
+}

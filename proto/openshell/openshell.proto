@@ -1,0 +1,28 @@
+// Vendored from github.com/NVIDIA/OpenShell/proto/openshell.proto
+syntax = "proto3";
+
+package openshell;
+
+option go_package = "github.com/NVIDIA/OpenShell/proto/openshell";
+
+import "openshell/sandbox.proto";
+
+service OpenShell {
+  rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
+  rpc DeleteSandbox(DeleteSandboxRequest) returns (DeleteSandboxResponse);
+  rpc GetSandbox(GetSandboxRequest) returns (GetSandboxResponse);
+  rpc ExecSandbox(ExecSandboxRequest) returns (stream ExecSandboxEvent);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  ServingStatus status = 1;
+
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+}

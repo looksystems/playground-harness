@@ -69,8 +69,26 @@ class BashkitCLIDriver implements ShellDriverInterface
         ];
     }
 
+    private function tryCustomCommand(string $command): ?ExecResult
+    {
+        $parts = preg_split('/\s+/', trim($command), -1, PREG_SPLIT_NO_EMPTY);
+        if (empty($parts)) {
+            return null;
+        }
+        $handler = $this->commands[$parts[0]] ?? null;
+        if ($handler === null) {
+            return null;
+        }
+        return $handler(array_slice($parts, 1), '');
+    }
+
     public function exec(string $command): ExecResult
     {
+        $customResult = $this->tryCustomCommand($command);
+        if ($customResult !== null) {
+            return $customResult;
+        }
+
         $preamble = $this->buildSyncPreamble();
         $marker = '__HARNESS_FS_SYNC_' . (int)(microtime(true) * 1000) . '__';
         $epilogue = $this->buildSyncEpilogue($marker);

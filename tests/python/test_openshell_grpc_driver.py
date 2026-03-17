@@ -6,7 +6,7 @@ import base64
 
 import pytest
 
-from src.python.openshell_grpc_driver import OpenShellGrpcDriver, OpenShellPolicy
+from src.python.openshell_grpc_driver import OpenShellGrpcDriver, OpenShellPolicy, ExecStreamEvent
 from src.python.openshell_driver import OpenShellDriver, register_openshell_driver
 from src.python.drivers import ShellDriver, FilesystemDriver, ShellDriverFactory
 from src.python.shell import ExecResult
@@ -382,6 +382,58 @@ class TestOpenShellGrpcDriverCommands:
         driver, _ = make_driver()
         driver.unregister_command("nonexistent")  # should not raise
 
+    def test_custom_command_executes_locally(self):
+        driver, mock = make_driver()
+        driver.register_command(
+            "greet", lambda args, stdin="": ExecResult(stdout="hello\n")
+        )
+        result = driver.exec("greet")
+        assert result.stdout == "hello\n"
+        assert result.exit_code == 0
+        # Should NOT have called the remote
+        exec_calls = [c for c in mock.calls if c[0] == "exec_sandbox"]
+        assert len(exec_calls) == 0
+
+    def test_custom_command_with_args(self):
+        driver, _ = make_driver()
+        received_args = []
+        def handler(args, stdin=""):
+            received_args.extend(args)
+            return ExecResult(stdout="ok\n")
+        driver.register_command("mycmd", handler)
+        result = driver.exec("mycmd foo bar")
+        assert received_args == ["foo", "bar"]
+        assert result.stdout == "ok\n"
+
+    def test_unregistered_command_falls_through_to_remote(self):
+        driver, mock = make_driver()
+        mock.next_exec_result = MockExecResult(stdout="remote output")
+        result = driver.exec("echo hello")
+        exec_calls = [c for c in mock.calls if c[0] == "exec_sandbox"]
+        assert len(exec_calls) == 1
+
+    def test_unregister_stops_interception(self):
+        driver, mock = make_driver()
+        driver.register_command(
+            "mycmd", lambda args, stdin="": ExecResult(stdout="local\n")
+        )
+        driver.unregister_command("mycmd")
+        mock.next_exec_result = MockExecResult(stdout="remote")
+        result = driver.exec("mycmd")
+        exec_calls = [c for c in mock.calls if c[0] == "exec_sandbox"]
+        assert len(exec_calls) == 1
+
+    def test_vfs_sync_skipped_for_custom_commands(self):
+        driver, mock = make_driver()
+        driver.fs.write("/dirty.txt", "data")
+        assert "/dirty.txt" in driver._fs_driver.dirty
+        driver.register_command(
+            "mycmd", lambda args, stdin="": ExecResult(stdout="ok\n")
+        )
+        driver.exec("mycmd")
+        # Dirty files should NOT have been cleared (no sync happened)
+        assert "/dirty.txt" in driver._fs_driver.dirty
+
 
 class TestOpenShellGrpcDriverOnNotFound:
     """on_not_found property."""
@@ -401,3 +453,203 @@ class TestOpenShellGrpcDriverOnNotFound:
         driver.on_not_found = lambda cmd: None
         driver.on_not_found = None
         assert driver.on_not_found is None
+
+
+# ---------------------------------------------------------------------------
+# gRPC transport tests
+# ---------------------------------------------------------------------------
+
+
+class MockGrpcClient:
+    """Mock gRPC client stub for testing the gRPC transport path."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, ...]] = []
+        self._exec_results: list[list] = []
+        self._create_count = 0
+        self._deleted: list[str] = []
+
+    def CreateSandbox(self, request):
+        self._create_count += 1
+        self.calls.append(("CreateSandbox",))
+        from src.python.generated.openshell.sandbox_pb2 import CreateSandboxResponse
+        from src.python.generated.openshell.datamodel_pb2 import Sandbox
+        sandbox_id = f"grpc-sandbox-{self._create_count:03d}"
+        return CreateSandboxResponse(
+            sandbox=Sandbox(name=request.name, sandbox_id=sandbox_id)
+        )
+
+    def DeleteSandbox(self, request):
+        self._deleted.append(request.name)
+        self.calls.append(("DeleteSandbox", request.name))
+
+    def ExecSandbox(self, request):
+        self.calls.append(("ExecSandbox", request.sandbox_id, request.command))
+        if self._exec_results:
+            return iter(self._exec_results.pop(0))
+        from src.python.generated.openshell.sandbox_pb2 import (
+            ExecSandboxEvent, StdoutChunk, ExitStatus,
+        )
+        return iter([
+            ExecSandboxEvent(stdout=StdoutChunk(data=b"")),
+            ExecSandboxEvent(exit=ExitStatus(code=0)),
+        ])
+
+    def enqueue_exec_result(self, events):
+        self._exec_results.append(events)
+
+
+def make_grpc_driver(**kwargs) -> tuple[OpenShellGrpcDriver, MockGrpcClient]:
+    """Create a driver with gRPC transport and mock client."""
+    mock = MockGrpcClient()
+    driver = OpenShellGrpcDriver(transport="grpc", grpc_client=mock, **kwargs)
+    return driver, mock
+
+
+class TestOpenShellGrpcTransport:
+    """Tests for the gRPC transport path."""
+
+    def test_transport_selection_grpc(self):
+        driver, _ = make_grpc_driver()
+        assert driver._transport == "grpc"
+
+    def test_transport_selection_ssh_default(self):
+        driver, _ = make_driver()
+        assert driver._transport == "ssh"
+
+    def test_grpc_capabilities_include_streaming(self):
+        driver, _ = make_grpc_driver()
+        assert "streaming" in driver.capabilities()
+
+    def test_ssh_capabilities_exclude_streaming(self):
+        driver, _ = make_driver()
+        assert "streaming" not in driver.capabilities()
+
+    def test_grpc_exec_returns_result(self):
+        driver, mock = make_grpc_driver()
+        from src.python.generated.openshell.sandbox_pb2 import (
+            ExecSandboxEvent, StdoutChunk, StderrChunk, ExitStatus,
+        )
+        mock.enqueue_exec_result([
+            ExecSandboxEvent(stdout=StdoutChunk(data=b"hello world")),
+            ExecSandboxEvent(stderr=StderrChunk(data=b"warn")),
+            ExecSandboxEvent(exit=ExitStatus(code=0)),
+        ])
+        result = driver.exec("echo hello world")
+        assert "hello world" in result.stdout
+        assert result.exit_code == 0
+
+    def test_grpc_lifecycle_create_on_first_exec(self):
+        driver, mock = make_grpc_driver()
+        assert driver.sandbox_id is None
+        from src.python.generated.openshell.sandbox_pb2 import (
+            ExecSandboxEvent, StdoutChunk, ExitStatus,
+        )
+        mock.enqueue_exec_result([
+            ExecSandboxEvent(stdout=StdoutChunk(data=b"ok")),
+            ExecSandboxEvent(exit=ExitStatus(code=0)),
+        ])
+        driver.exec("echo hi")
+        assert driver.sandbox_id is not None
+        assert mock._create_count == 1
+
+    def test_grpc_lifecycle_delete_on_close(self):
+        driver, mock = make_grpc_driver()
+        from src.python.generated.openshell.sandbox_pb2 import (
+            ExecSandboxEvent, StdoutChunk, ExitStatus,
+        )
+        mock.enqueue_exec_result([
+            ExecSandboxEvent(stdout=StdoutChunk(data=b"ok")),
+            ExecSandboxEvent(exit=ExitStatus(code=0)),
+        ])
+        driver.exec("echo hi")
+        sandbox_id = driver.sandbox_id
+        driver.close()
+        assert sandbox_id in mock._deleted
+        assert driver.sandbox_id is None
+
+    def test_grpc_vfs_sync(self):
+        driver, mock = make_grpc_driver()
+        driver.fs.write("/hello.txt", "world")
+        from src.python.generated.openshell.sandbox_pb2 import (
+            ExecSandboxEvent, StdoutChunk, ExitStatus,
+        )
+        mock.enqueue_exec_result([
+            ExecSandboxEvent(stdout=StdoutChunk(data=b"ok")),
+            ExecSandboxEvent(exit=ExitStatus(code=0)),
+        ])
+        driver.exec("cat /hello.txt")
+        exec_calls = [c for c in mock.calls if c[0] == "ExecSandbox"]
+        assert len(exec_calls) >= 1
+        # The command sent should contain the VFS sync preamble
+        cmd_list = exec_calls[0][2]
+        full_cmd = " ".join(cmd_list)
+        assert "base64" in full_cmd or "hello.txt" in full_cmd
+
+    def test_custom_commands_bypass_grpc(self):
+        driver, mock = make_grpc_driver()
+        driver.register_command(
+            "greet", lambda args, stdin="": ExecResult(stdout="hi\n")
+        )
+        result = driver.exec("greet")
+        assert result.stdout == "hi\n"
+        exec_calls = [c for c in mock.calls if c[0] == "ExecSandbox"]
+        assert len(exec_calls) == 0
+
+    def test_clone_preserves_transport(self):
+        driver, _ = make_grpc_driver()
+        cloned = driver.clone()
+        assert cloned._transport == "grpc"
+        assert cloned.sandbox_id is None
+
+
+class TestOpenShellExecStream:
+    """Tests for execStream() method."""
+
+    def test_exec_stream_yields_events(self):
+        driver, mock = make_driver()
+        mock.next_exec_result = MockExecResult(stdout="hello", stderr="warn", exit_code=0)
+        events = list(driver.exec_stream("echo hello"))
+        types = [e.type for e in events]
+        assert "stdout" in types
+        assert "exit" in types
+
+    def test_exec_stream_exit_event(self):
+        driver, mock = make_driver()
+        mock.next_exec_result = MockExecResult(stdout="ok", exit_code=42)
+        events = list(driver.exec_stream("fail"))
+        exit_events = [e for e in events if e.type == "exit"]
+        assert len(exit_events) == 1
+        assert exit_events[0].exit_code == 42
+
+    def test_exec_stream_vfs_sync_after_completion(self):
+        driver, mock = make_driver()
+
+        def custom_exec(sandbox_id, command):
+            import re
+            m = re.search(r'__HARNESS_FS_SYNC_[0-9a-f]+__', command)
+            marker = m.group(0) if m else ""
+            stdout = f"hello{_make_sync_output(marker, {'/result.txt': 'streamed'})}"
+            return MockExecResult(stdout=stdout)
+
+        mock.exec_sandbox = custom_exec
+        events = list(driver.exec_stream("echo hello"))
+        assert driver.fs.exists("/result.txt")
+        assert driver.fs.read_text("/result.txt") == "streamed"
+
+    def test_exec_stream_custom_command(self):
+        driver, mock = make_driver()
+        driver.register_command(
+            "greet", lambda args, stdin="": ExecResult(stdout="hi\n")
+        )
+        events = list(driver.exec_stream("greet"))
+        stdout_events = [e for e in events if e.type == "stdout"]
+        assert len(stdout_events) == 1
+        assert stdout_events[0].data == "hi\n"
+
+    def test_exec_stream_raises_without_grpc(self):
+        driver = OpenShellGrpcDriver(
+            ssh_host="localhost", ssh_port=2222, transport="ssh"
+        )
+        with pytest.raises(RuntimeError, match="execStream requires"):
+            list(driver.exec_stream("echo hi"))

@@ -4,17 +4,25 @@ The OpenShell driver connects Agent Harness to [NVIDIA OpenShell](https://github
 
 ## Installation
 
-### Python
+### SSH transport (default)
 
-No additional packages needed for the SSH-based driver. Ensure `ssh` is on your PATH.
+No additional packages needed for any language. Ensure `ssh` is on your PATH.
 
-### TypeScript
+### gRPC transport (optional)
 
-The TypeScript driver uses SSH for synchronous execution. Ensure `ssh` is available on your PATH. No additional npm packages required.
+For native gRPC with streaming exec support, install the gRPC dependencies:
 
-### PHP
+```bash
+# Python
+pip install agent-harness[grpc]
 
-No additional extensions needed for the SSH-based driver. PHP uses `proc_open` to spawn SSH processes.
+# TypeScript
+npm install @grpc/grpc-js @grpc/proto-loader
+
+# PHP
+pecl install grpc
+composer require grpc/grpc google/protobuf
+```
 
 ## Setup
 
@@ -159,6 +167,119 @@ The OpenShell driver uses the same preamble/epilogue sync mechanism as the bashk
 
 VFS paths are transparently remapped to workspace paths on the remote host.
 
+## Custom Commands
+
+Registered commands are intercepted locally before SSH dispatch. The driver extracts the first whitespace-delimited token from the command string and checks it against the registered commands map. If it matches, the handler runs in the host process and the result is returned directly — no SSH call, no VFS sync.
+
+- Only simple first-word matching (no pipe or compound expression support)
+- Custom command results don't trigger VFS sync (they're local)
+- Use case: domain-specific operations that don't need sandbox execution
+
+```python
+driver.register_command("lookup", lambda args, stdin="": ExecResult(
+    stdout=f"Found: {args[0]}\n"
+))
+result = driver.exec("lookup item-42")  # Runs locally, no SSH
+```
+
+## gRPC Transport
+
+The driver supports native gRPC transport for streaming exec, proper sandbox lifecycle management, and alignment with the official OpenShell API.
+
+### Setup
+
+```python
+# Python — gRPC transport
+from src.python.openshell_grpc_driver import OpenShellGrpcDriver, OpenShellPolicy
+
+driver = OpenShellGrpcDriver(
+    endpoint="localhost:50051",
+    transport="grpc",
+    policy=OpenShellPolicy(
+        filesystem_allow=["/data"],
+        inference_routing=True,
+    ),
+)
+result = driver.exec("echo hello")
+driver.close()
+```
+
+```typescript
+// TypeScript — gRPC transport
+const driver = new OpenShellGrpcDriver({
+  endpoint: "localhost:50051",
+  transport: "grpc",
+  policy: { filesystemAllow: ["/data"] },
+});
+const result = driver.exec("echo hello");
+driver.close();
+```
+
+```php
+// PHP — gRPC transport
+$driver = new OpenShellGrpcDriver(
+    endpoint: 'localhost:50051',
+    transport: 'grpc',
+    policy: ['filesystemAllow' => ['/data']],
+);
+$result = $driver->exec('echo hello');
+$driver->close();
+```
+
+### Streaming exec
+
+When using gRPC transport, `execStream()` yields real-time events:
+
+```python
+# Python
+from src.python.openshell_grpc_driver import ExecStreamEvent
+
+for event in driver.exec_stream("make build"):
+    if event.type == "stdout":
+        print(event.data, end="")
+    elif event.type == "stderr":
+        print(event.data, end="", file=sys.stderr)
+    elif event.type == "exit":
+        print(f"\nExit code: {event.exit_code}")
+```
+
+```typescript
+// TypeScript
+for await (const event of driver.execStream("make build")) {
+  if (event.type === "stdout") process.stdout.write(event.data);
+  else if (event.type === "stderr") process.stderr.write(event.data);
+  else if (event.type === "exit") console.log(`Exit: ${event.exitCode}`);
+}
+```
+
+```php
+// PHP
+foreach ($driver->execStream('make build') as $event) {
+    match ($event['type']) {
+        'stdout' => print($event['data']),
+        'stderr' => fwrite(STDERR, $event['data']),
+        'exit' => printf("\nExit code: %d\n", $event['exitCode']),
+    };
+}
+```
+
+VFS sync-back happens after the stream completes — the caller sees stdout chunks in real-time, but VFS updates are applied once the command finishes.
+
+### Docker-based testing
+
+A mock gRPC server is provided for local development:
+
+```bash
+# Start the mock server
+docker compose up -d
+
+# Run integration tests
+OPENSHELL_ENDPOINT=localhost:50051 python3 -m pytest tests/integration/test_openshell_grpc_live.py -v
+
+# Clean up
+docker compose down
+```
+
 ## Lifecycle
 
 - **Lazy creation**: The sandbox connection is established on first `exec()` call
@@ -194,7 +315,7 @@ driver.capabilities()
 
 | Capability | Description |
 |-----------|-------------|
-| `custom_commands` | Supports `register_command()` / `unregister_command()` |
+| `custom_commands` | Supports `register_command()` / `unregister_command()`. Custom commands execute locally in the host process via first-word interception (not in the sandbox). |
 | `remote` | Executes commands in a remote process |
 | `policies` | Accepts security policy objects |
-| `streaming` | Supports `SHELL_STDOUT_CHUNK` / `SHELL_STDERR_CHUNK` hooks |
+| `streaming` | Supports `execStream()` with real-time stdout/stderr events (gRPC transport only) |

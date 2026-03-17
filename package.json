@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "openai": "^4.0.0",
-    "yaml": "^2.0.0"
+    "yaml": "^2.0.0",
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

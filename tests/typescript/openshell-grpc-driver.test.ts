@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { OpenShellDriver, registerOpenShellDriver } from "../../src/typescript/openshell-driver.js";
-import { OpenShellGrpcDriver } from "../../src/typescript/openshell-grpc-driver.js";
+import { OpenShellGrpcDriver, type ExecStreamEvent } from "../../src/typescript/openshell-grpc-driver.js";
 import { ShellDriverFactory } from "../../src/typescript/drivers.js";
 
 function fakeExecOverride(cmd: string) {
@@ -219,6 +219,94 @@ describe("OpenShellGrpcDriver exec", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Custom command dispatch
+// ---------------------------------------------------------------------------
+
+describe("OpenShellGrpcDriver custom command dispatch", () => {
+  it("custom command executes locally", () => {
+    const calls: string[] = [];
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.registerCommand("greet", (args, stdin) => ({
+      stdout: "hello\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const result = driver.exec("greet");
+    expect(result.stdout).toBe("hello\n");
+    expect(result.exitCode).toBe(0);
+    expect(calls.length).toBe(0);
+  });
+
+  it("custom command receives args", () => {
+    const receivedArgs: string[] = [];
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+    });
+    driver.registerCommand("mycmd", (args, stdin) => {
+      receivedArgs.push(...args);
+      return { stdout: "ok\n", stderr: "", exitCode: 0 };
+    });
+    const result = driver.exec("mycmd foo bar");
+    expect(receivedArgs).toEqual(["foo", "bar"]);
+    expect(result.stdout).toBe("ok\n");
+  });
+
+  it("unregistered command falls through to remote", () => {
+    const calls: string[] = [];
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.exec("echo hello");
+    expect(calls.length).toBe(1);
+  });
+
+  it("unregister stops interception", () => {
+    const calls: string[] = [];
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.registerCommand("mycmd", (args, stdin) => ({
+      stdout: "local\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    driver.unregisterCommand("mycmd");
+    driver.exec("mycmd");
+    expect(calls.length).toBe(1);
+  });
+
+  it("VFS sync skipped for custom commands", () => {
+    const calls: string[] = [];
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.fs.write("/dirty.txt", "data");
+    driver.registerCommand("mycmd", (args, stdin) => ({
+      stdout: "ok\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    driver.exec("mycmd");
+    // No remote call means dirty files were not synced
+    expect(calls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Clone
 // ---------------------------------------------------------------------------
 
@@ -291,5 +379,130 @@ describe("OpenShellGrpcDriver lifecycle", () => {
     expect(driver.onNotFound).toBe(handler);
     driver.onNotFound = undefined;
     expect(driver.onNotFound).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gRPC transport tests
+// ---------------------------------------------------------------------------
+
+describe("OpenShellGrpcDriver transport selection", () => {
+  it("defaults to ssh transport", () => {
+    const driver = new OpenShellGrpcDriver({ _execOverride: fakeExecOverride });
+    expect((driver as any)._transport).toBe("ssh");
+  });
+
+  it("accepts grpc transport option", () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+      transport: "grpc",
+    });
+    expect((driver as any)._transport).toBe("grpc");
+  });
+
+  it("grpc transport includes streaming capability", () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+      transport: "grpc",
+    });
+    expect(driver.capabilities().has("streaming")).toBe(true);
+  });
+
+  it("ssh transport excludes streaming capability", () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+      transport: "ssh",
+    });
+    expect(driver.capabilities().has("streaming")).toBe(false);
+  });
+
+  it("clone preserves transport setting", () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+      transport: "grpc",
+    });
+    const cloned = driver.clone();
+    expect((cloned as any)._transport).toBe("grpc");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// execStream tests
+// ---------------------------------------------------------------------------
+
+describe("OpenShellGrpcDriver execStream", () => {
+  async function collectEvents(gen: AsyncGenerator<ExecStreamEvent>): Promise<ExecStreamEvent[]> {
+    const events: ExecStreamEvent[] = [];
+    for await (const event of gen) {
+      events.push(event);
+    }
+    return events;
+  }
+
+  it("yields stdout and exit events", async () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        const markerMatch = cmd.match(/__HARNESS_FS_SYNC_\d+__/);
+        const marker = markerMatch ? markerMatch[0] : "";
+        return { stdout: `hello\n${marker}\n`, stderr: "", exitCode: 0 };
+      },
+    });
+    const events = await collectEvents(driver.execStream("echo hello"));
+    const types = events.map((e) => e.type);
+    expect(types).toContain("stdout");
+    expect(types).toContain("exit");
+  });
+
+  it("exit event carries exitCode", async () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        const markerMatch = cmd.match(/__HARNESS_FS_SYNC_\d+__/);
+        const marker = markerMatch ? markerMatch[0] : "";
+        return { stdout: `\n${marker}\n`, stderr: "", exitCode: 42 };
+      },
+    });
+    const events = await collectEvents(driver.execStream("fail"));
+    const exitEvent = events.find((e) => e.type === "exit");
+    expect(exitEvent).toBeDefined();
+    expect((exitEvent as any).exitCode).toBe(42);
+  });
+
+  it("VFS sync happens after stream completion", async () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: (cmd: string) => {
+        const markerMatch = cmd.match(/__HARNESS_FS_SYNC_\d+__/);
+        const marker = markerMatch ? markerMatch[0] : "";
+        return {
+          stdout: `output${makeSyncOutput(marker, { "/result.txt": "streamed" })}`,
+          stderr: "",
+          exitCode: 0,
+        };
+      },
+    });
+    await collectEvents(driver.execStream("echo output"));
+    expect(driver.fs.exists("/result.txt")).toBe(true);
+    expect(driver.fs.readText("/result.txt")).toBe("streamed");
+  });
+
+  it("custom command streams locally", async () => {
+    const driver = new OpenShellGrpcDriver({
+      _execOverride: fakeExecOverride,
+    });
+    driver.registerCommand("greet", (args, stdin) => ({
+      stdout: "hi\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const events = await collectEvents(driver.execStream("greet"));
+    const stdoutEvents = events.filter((e) => e.type === "stdout");
+    expect(stdoutEvents.length).toBe(1);
+    expect((stdoutEvents[0] as any).data).toBe("hi\n");
+  });
+
+  it("throws without grpc transport or execOverride", async () => {
+    const driver = new OpenShellGrpcDriver({ transport: "ssh" });
+    await expect(async () => {
+      await collectEvents(driver.execStream("echo hi"));
+    }).rejects.toThrow("execStream requires");
   });
 });

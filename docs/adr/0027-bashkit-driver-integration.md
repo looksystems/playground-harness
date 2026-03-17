@@ -65,7 +65,7 @@ class BashkitPythonDriver(ShellDriver):
 Uses `bashkit -c 'command'` for one-shot execution:
 
 - Stateless: new bashkit process per `exec()` call
-- No custom command support (commands registered locally but unavailable in subprocess)
+- Local interception: registered custom commands are dispatched in-process via first-word matching, skipping the subprocess
 - Suitable for simple script execution
 
 ```typescript
@@ -95,7 +95,7 @@ Each language has a single resolution path:
 |-----------|--------|------------|-----|
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
 | State persistence between exec() | Yes | No | No |
-| Custom command callbacks | Yes (ScriptedTool) | No | No |
+| Custom command callbacks | Yes (ScriptedTool) | Yes (local interception) | Yes (local interception) |
 | VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (subprocess) | Preamble/epilogue (subprocess) |
 | Async support | Yes (execute/execute_sync) | Sync only | Sync only |
 
@@ -117,7 +117,7 @@ The only difference is the transport: Python runs everything in-process via PyO3
 - Python gets the richest integration: in-process, stateful, with custom command support
 - TypeScript and PHP get VFS sync via preamble/epilogue — files persist between exec() calls but shell state does not
 - The `ShellDriver` contract from Phase 1 remains unchanged — all drivers implement the same interface
-- `registerCommand` in TS/PHP stores handlers locally but they won't be available in the bashkit subprocess
+- `registerCommand` in TS/PHP dispatches locally via first-word interception — custom commands execute in the host process and skip the bashkit subprocess. They don't compose with pipes or compound expressions (only simple direct invocations like `mycmd arg1 arg2`)
 
 ## Future Directions
 

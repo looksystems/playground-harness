@@ -156,4 +156,85 @@ describe("BashkitCLIDriver", () => {
     expect(driver.cwd).toBe("/tmp");
     expect(driver.env).toEqual({ FOO: "bar" });
   });
+
+  it("custom command executes locally", () => {
+    const calls: string[] = [];
+    const driver = new BashkitCLIDriver({
+      _execOverride: (cmd) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.registerCommand("greet", (args, stdin) => ({
+      stdout: "hello\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const result = driver.exec("greet");
+    expect(result.stdout).toBe("hello\n");
+    expect(result.exitCode).toBe(0);
+    expect(calls.length).toBe(0);
+  });
+
+  it("custom command receives args", () => {
+    const receivedArgs: string[] = [];
+    const driver = new BashkitCLIDriver({
+      _execOverride: () => ({ stdout: "", stderr: "", exitCode: 0 }),
+    });
+    driver.registerCommand("mycmd", (args, stdin) => {
+      receivedArgs.push(...args);
+      return { stdout: "ok\n", stderr: "", exitCode: 0 };
+    });
+    const result = driver.exec("mycmd foo bar");
+    expect(receivedArgs).toEqual(["foo", "bar"]);
+    expect(result.stdout).toBe("ok\n");
+  });
+
+  it("unregistered command falls through to remote", () => {
+    const calls: string[] = [];
+    const driver = new BashkitCLIDriver({
+      _execOverride: (cmd) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.exec("echo hello");
+    expect(calls.length).toBe(1);
+  });
+
+  it("unregister stops interception", () => {
+    const calls: string[] = [];
+    const driver = new BashkitCLIDriver({
+      _execOverride: (cmd) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.registerCommand("mycmd", (args, stdin) => ({
+      stdout: "local\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    driver.unregisterCommand("mycmd");
+    driver.exec("mycmd");
+    expect(calls.length).toBe(1);
+  });
+
+  it("VFS sync skipped for custom commands", () => {
+    const calls: string[] = [];
+    const driver = new BashkitCLIDriver({
+      _execOverride: (cmd) => {
+        calls.push(cmd);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    });
+    driver.fs.write("/dirty.txt", "data");
+    driver.registerCommand("mycmd", (args, stdin) => ({
+      stdout: "ok\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    driver.exec("mycmd");
+    expect(calls.length).toBe(0);
+  });
 });

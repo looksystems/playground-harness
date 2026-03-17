@@ -82,7 +82,18 @@ export class BashkitCLIDriver implements ShellDriver {
     };
   }
 
+  private _tryCustomCommand(command: string): ExecResult | null {
+    const parts = command.trim().split(/\s+/);
+    if (parts.length === 0) return null;
+    const handler = this._commands.get(parts[0]);
+    if (!handler) return null;
+    return handler(parts.slice(1), "");
+  }
+
   exec(command: string): ExecResult {
+    const customResult = this._tryCustomCommand(command);
+    if (customResult !== null) return customResult;
+
     const preamble = buildSyncPreamble(this._fsDriver);
     const marker = `__HARNESS_FS_SYNC_${Date.now()}__`;
     const epilogue = buildSyncEpilogue(marker);

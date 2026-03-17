@@ -212,6 +212,86 @@ class BashkitCLIDriverTest extends TestCase
         $this->assertSame($content, $driver->fs()->readText('/special.txt'));
     }
 
+    // --- Custom command dispatch ---
+
+    public function testCustomCommandExecutesLocally(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->registerCommand('greet', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "hello\n",
+        ));
+        $result = $driver->exec('greet');
+        $this->assertSame("hello\n", $result->stdout);
+        $this->assertSame(0, $result->exitCode);
+        $this->assertCount(0, $calls);
+    }
+
+    public function testCustomCommandWithArgs(): void
+    {
+        $receivedArgs = [];
+        $driver = $this->createDriver();
+        $driver->registerCommand('mycmd', function ($args, $stdin) use (&$receivedArgs) {
+            $receivedArgs = $args;
+            return new \AgentHarness\ExecResult(stdout: "ok\n");
+        });
+        $result = $driver->exec('mycmd foo bar');
+        $this->assertSame(['foo', 'bar'], $receivedArgs);
+        $this->assertSame("ok\n", $result->stdout);
+    }
+
+    public function testUnregisteredCommandFallsThroughToRemote(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->exec('echo hello');
+        $this->assertCount(1, $calls);
+    }
+
+    public function testUnregisterStopsInterception(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->registerCommand('mycmd', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "local\n",
+        ));
+        $driver->unregisterCommand('mycmd');
+        $driver->exec('mycmd');
+        $this->assertCount(1, $calls);
+    }
+
+    public function testVfsSyncSkippedForCustomCommands(): void
+    {
+        $calls = [];
+        $driver = new BashkitCLIDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->fs()->write('/dirty.txt', 'data');
+        $driver->registerCommand('mycmd', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "ok\n",
+        ));
+        $driver->exec('mycmd');
+        $this->assertCount(0, $calls);
+    }
+
     public function testRemovedFileSyncedAsRm(): void
     {
         $calls = [];

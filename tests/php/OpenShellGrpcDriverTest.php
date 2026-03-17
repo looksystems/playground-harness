@@ -197,6 +197,86 @@ class OpenShellGrpcDriverTest extends TestCase
         $this->assertContains('custom_commands', $driver->capabilities());
     }
 
+    // --- Custom command dispatch ---
+
+    public function testCustomCommandExecutesLocally(): void
+    {
+        $calls = [];
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->registerCommand('greet', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "hello\n",
+        ));
+        $result = $driver->exec('greet');
+        $this->assertSame("hello\n", $result->stdout);
+        $this->assertSame(0, $result->exitCode);
+        $this->assertCount(0, $calls);
+    }
+
+    public function testCustomCommandWithArgs(): void
+    {
+        $receivedArgs = [];
+        $driver = $this->createDriver();
+        $driver->registerCommand('mycmd', function ($args, $stdin) use (&$receivedArgs) {
+            $receivedArgs = $args;
+            return new \AgentHarness\ExecResult(stdout: "ok\n");
+        });
+        $result = $driver->exec('mycmd foo bar');
+        $this->assertSame(['foo', 'bar'], $receivedArgs);
+        $this->assertSame("ok\n", $result->stdout);
+    }
+
+    public function testUnregisteredCommandFallsThroughToRemote(): void
+    {
+        $calls = [];
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->exec('echo hello');
+        $this->assertCount(1, $calls);
+    }
+
+    public function testUnregisterStopsInterception(): void
+    {
+        $calls = [];
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->registerCommand('mycmd', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "local\n",
+        ));
+        $driver->unregisterCommand('mycmd');
+        $driver->exec('mycmd');
+        $this->assertCount(1, $calls);
+    }
+
+    public function testVfsSyncSkippedForCustomCommands(): void
+    {
+        $calls = [];
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd) use (&$calls): array {
+                $calls[] = $cmd;
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $driver->fs()->write('/dirty.txt', 'data');
+        $driver->registerCommand('mycmd', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "ok\n",
+        ));
+        $driver->exec('mycmd');
+        $this->assertCount(0, $calls);
+    }
+
     // --- Clone ---
 
     public function testCloneCreatesIndependentCopy(): void
@@ -260,5 +340,123 @@ class OpenShellGrpcDriverTest extends TestCase
         $policy = $driver->policy();
         $this->assertSame(['/data'], $policy['filesystemAllow']);
         $this->assertFalse($policy['inferenceRouting']);
+    }
+
+    // --- Transport selection ---
+
+    public function testDefaultTransportIsSsh(): void
+    {
+        $driver = $this->createDriver();
+        $ref = new \ReflectionProperty($driver, 'transport');
+        $this->assertSame('ssh', $ref->getValue($driver));
+    }
+
+    public function testGrpcTransportOption(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            transport: 'grpc',
+            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        );
+        $ref = new \ReflectionProperty($driver, 'transport');
+        $this->assertSame('grpc', $ref->getValue($driver));
+    }
+
+    public function testGrpcCapabilitiesIncludeStreaming(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            transport: 'grpc',
+            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        );
+        $this->assertContains('streaming', $driver->capabilities());
+    }
+
+    public function testSshCapabilitiesExcludeStreaming(): void
+    {
+        $driver = $this->createDriver();
+        $this->assertNotContains('streaming', $driver->capabilities());
+    }
+
+    public function testClonePreservesTransport(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            transport: 'grpc',
+            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        );
+        $cloned = $driver->cloneDriver();
+        $ref = new \ReflectionProperty($cloned, 'transport');
+        $this->assertSame('grpc', $ref->getValue($cloned));
+    }
+
+    // --- execStream tests ---
+
+    public function testExecStreamYieldsEvents(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd): array {
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    return ['stdout' => "hello\n{$matches[0]}\n", 'stderr' => '', 'exitCode' => 0];
+                }
+                return ['stdout' => 'hello', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        $events = iterator_to_array($driver->execStream('echo hello'), false);
+        $types = array_column($events, 'type');
+        $this->assertContains('stdout', $types);
+        $this->assertContains('exit', $types);
+    }
+
+    public function testExecStreamExitCode(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd): array {
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    return ['stdout' => "\n{$matches[0]}\n", 'stderr' => '', 'exitCode' => 42];
+                }
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 42];
+            },
+        );
+        $events = iterator_to_array($driver->execStream('fail'), false);
+        $exitEvents = array_filter($events, fn($e) => $e['type'] === 'exit');
+        $exitEvent = array_values($exitEvents)[0];
+        $this->assertSame(42, $exitEvent['exitCode']);
+    }
+
+    public function testExecStreamVfsSyncAfterCompletion(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            execOverride: function (string $cmd): array {
+                if (preg_match('/__HARNESS_FS_SYNC_\d+__/', $cmd, $matches)) {
+                    $marker = $matches[0];
+                    $syncData = "===FILE:/result.txt===\n" . base64_encode('streamed');
+                    return ['stdout' => "output\n{$marker}\n{$syncData}", 'stderr' => '', 'exitCode' => 0];
+                }
+                return ['stdout' => '', 'stderr' => '', 'exitCode' => 0];
+            },
+        );
+        iterator_to_array($driver->execStream('echo output'), false);
+        $this->assertTrue($driver->fs()->exists('/result.txt'));
+        $this->assertSame('streamed', $driver->fs()->readText('/result.txt'));
+    }
+
+    public function testExecStreamCustomCommand(): void
+    {
+        $driver = new OpenShellGrpcDriver(
+            execOverride: fn($cmd) => ['stdout' => '', 'stderr' => '', 'exitCode' => 0],
+        );
+        $driver->registerCommand('greet', fn($args, $stdin) => new \AgentHarness\ExecResult(
+            stdout: "hi\n",
+        ));
+        $events = iterator_to_array($driver->execStream('greet'), false);
+        $stdoutEvents = array_filter($events, fn($e) => $e['type'] === 'stdout');
+        $this->assertCount(1, $stdoutEvents);
+        $this->assertSame("hi\n", array_values($stdoutEvents)[0]['data']);
+    }
+
+    public function testExecStreamRaisesWithoutGrpc(): void
+    {
+        $driver = new OpenShellGrpcDriver(transport: 'ssh');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("execStream requires");
+        iterator_to_array($driver->execStream('echo hi'), false);
     }
 }

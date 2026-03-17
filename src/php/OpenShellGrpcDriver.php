@@ -27,6 +27,9 @@ class OpenShellGrpcDriver implements ShellDriverInterface
     private int $sshPort;
     private string $sshUser;
     private string $workspace;
+    /** @var 'ssh'|'grpc' */
+    private string $transport;
+    private mixed $grpcClient;
 
     public function __construct(
         string $cwd = '/',
@@ -39,6 +42,8 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         int $sshPort = 2222,
         string $sshUser = 'sandbox',
         string $workspace = '/home/sandbox/workspace',
+        string $transport = 'ssh',
+        mixed $grpcClient = null,
     ) {
         $this->cwd = $cwd;
         $this->env = $env;
@@ -51,6 +56,50 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         $this->sshPort = $sshPort;
         $this->sshUser = $sshUser;
         $this->workspace = $workspace;
+        $this->transport = $transport;
+        $this->grpcClient = $grpcClient;
+    }
+
+    private function getGrpcClient(): mixed
+    {
+        if ($this->grpcClient !== null) {
+            return $this->grpcClient;
+        }
+        $clientClass = \AgentHarness\Generated\OpenShell\OpenShellClient::class;
+        $this->grpcClient = new $clientClass($this->endpoint, [
+            'credentials' => \Grpc\ChannelCredentials::createInsecure(),
+        ]);
+        return $this->grpcClient;
+    }
+
+    private function buildSandboxSpec(): \AgentHarness\Generated\OpenShell\SandboxSpec
+    {
+        $fsPolicy = new \AgentHarness\Generated\OpenShell\FilesystemPolicy(
+            readWrite: $this->policy['filesystemAllow'] ?? [],
+        );
+        $netPolicies = [];
+        foreach ($this->policy['networkRules'] ?? [] as $rule) {
+            $deny = $rule['deny'] ?? null;
+            $allow = $rule['allow'] ?? null;
+            $netPolicies[] = new \AgentHarness\Generated\OpenShell\NetworkPolicy(
+                cidr: $allow ?? $deny ?? '',
+                action: $deny !== null
+                    ? \AgentHarness\Generated\OpenShell\NetworkPolicy::DENY
+                    : \AgentHarness\Generated\OpenShell\NetworkPolicy::ALLOW,
+            );
+        }
+        $infPolicy = new \AgentHarness\Generated\OpenShell\InferencePolicy(
+            routingEnabled: $this->policy['inferenceRouting'] ?? true,
+        );
+        $policy = new \AgentHarness\Generated\OpenShell\SandboxPolicy(
+            filesystem: $fsPolicy,
+            networkPolicies: $netPolicies,
+            inference: $infPolicy,
+        );
+        return new \AgentHarness\Generated\OpenShell\SandboxSpec(
+            policy: $policy,
+            workspace: $this->workspace,
+        );
     }
 
     private function ensureSandbox(): void
@@ -68,7 +117,24 @@ class OpenShellGrpcDriver implements ShellDriverInterface
             }
         }
 
+        if ($this->transport === 'grpc') {
+            $this->ensureSandboxGrpc();
+            return;
+        }
+
         $this->sandboxId = "{$this->sshUser}@{$this->sshHost}:{$this->sshPort}";
+    }
+
+    private function ensureSandboxGrpc(): void
+    {
+        $client = $this->getGrpcClient();
+        $spec = $this->buildSandboxSpec();
+        $request = new \AgentHarness\Generated\OpenShell\CreateSandboxRequest(
+            name: 'harness-' . bin2hex(random_bytes(4)),
+            spec: $spec,
+        );
+        $response = $client->CreateSandbox($request);
+        $this->sandboxId = $response->sandbox->sandboxId ?? $response->sandbox->name;
     }
 
     public function fs(): FilesystemDriver { return $this->fsDriver; }
@@ -88,7 +154,17 @@ class OpenShellGrpcDriver implements ShellDriverInterface
             return ($this->execOverride)($command);
         }
 
-        // Real execution via SSH into the OpenShell sandbox
+        if ($this->transport === 'grpc') {
+            return $this->rawExecGrpc($command);
+        }
+        return $this->rawExecSsh($command);
+    }
+
+    /**
+     * @return array{stdout: string, stderr: string, exitCode: int}
+     */
+    private function rawExecSsh(string $command): array
+    {
         $escaped = escapeshellarg($command);
         $sshCmd = sprintf(
             'ssh -p %d -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR %s@%s %s',
@@ -120,6 +196,36 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         ];
     }
 
+    /**
+     * @return array{stdout: string, stderr: string, exitCode: int}
+     */
+    private function rawExecGrpc(string $command): array
+    {
+        $client = $this->getGrpcClient();
+        $request = new \AgentHarness\Generated\OpenShell\ExecSandboxRequest(
+            sandboxId: $this->sandboxId,
+            command: ['bash', '-c', $command],
+            env: $this->env,
+        );
+        $stdoutParts = [];
+        $stderrParts = [];
+        $exitCode = 0;
+        foreach ($client->ExecSandbox($request) as $event) {
+            if ($event->stdout !== null) {
+                $stdoutParts[] = $event->stdout->data;
+            } elseif ($event->stderr !== null) {
+                $stderrParts[] = $event->stderr->data;
+            } elseif ($event->exit !== null) {
+                $exitCode = $event->exit->code;
+            }
+        }
+        return [
+            'stdout' => implode('', $stdoutParts),
+            'stderr' => implode('', $stderrParts),
+            'exitCode' => $exitCode,
+        ];
+    }
+
     private function remapPath(string $vfsPath): string
     {
         if ($this->execOverride !== null) {
@@ -140,8 +246,26 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         return $remotePath;
     }
 
+    private function tryCustomCommand(string $command): ?ExecResult
+    {
+        $parts = preg_split('/\s+/', trim($command), -1, PREG_SPLIT_NO_EMPTY);
+        if (empty($parts)) {
+            return null;
+        }
+        $handler = $this->commands[$parts[0]] ?? null;
+        if ($handler === null) {
+            return null;
+        }
+        return $handler(array_slice($parts, 1), '');
+    }
+
     public function exec(string $command): ExecResult
     {
+        $customResult = $this->tryCustomCommand($command);
+        if ($customResult !== null) {
+            return $customResult;
+        }
+
         $marker = '__HARNESS_FS_SYNC_' . (int)(microtime(true) * 1000) . '__';
 
         if ($this->execOverride !== null) {
@@ -189,6 +313,111 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         );
     }
 
+    /**
+     * Execute a command via gRPC streaming, yielding events.
+     *
+     * Requires transport='grpc'. VFS sync-back happens after the stream completes.
+     *
+     * @return \Generator<array{type: string, data?: string, exitCode?: int}>
+     */
+    public function execStream(string $command): \Generator
+    {
+        if ($this->transport !== 'grpc' && $this->execOverride === null) {
+            throw new \RuntimeException("execStream requires transport='grpc'");
+        }
+
+        $customResult = $this->tryCustomCommand($command);
+        if ($customResult !== null) {
+            if ($customResult->stdout !== '') {
+                yield ['type' => 'stdout', 'data' => $customResult->stdout];
+            }
+            if ($customResult->stderr !== '') {
+                yield ['type' => 'stderr', 'data' => $customResult->stderr];
+            }
+            yield ['type' => 'exit', 'exitCode' => $customResult->exitCode];
+            return;
+        }
+
+        $marker = '__HARNESS_FS_SYNC_' . (int)(microtime(true) * 1000) . '__';
+
+        if ($this->execOverride !== null) {
+            $preamble = $this->buildSyncPreamble();
+            $epilogue = $this->buildSyncEpilogue($marker);
+        } else {
+            $parts = ["mkdir -p {$this->workspace}"];
+            foreach ($this->fsDriver->getDirty() as $path) {
+                $remote = $this->remapPath($path);
+                if ($this->fsDriver->exists($path) && !$this->fsDriver->isDir($path)) {
+                    $content = $this->fsDriver->readText($path);
+                    $encoded = base64_encode($content);
+                    $parts[] = "mkdir -p \$(dirname '{$remote}') && printf '%s' '{$encoded}' | base64 -d > '{$remote}'";
+                } elseif (!$this->fsDriver->exists($path)) {
+                    $parts[] = "rm -f '{$remote}'";
+                }
+            }
+            $this->fsDriver->clearDirty();
+            $preamble = implode(' && ', $parts);
+            $epilogue = $this->buildSyncEpilogue($marker, $this->workspace);
+        }
+
+        $fullCommand = $preamble !== ''
+            ? "{$preamble} && {$command}{$epilogue}"
+            : "{$command}{$epilogue}";
+
+        $this->ensureSandbox();
+
+        if ($this->execOverride !== null) {
+            $raw = ($this->execOverride)($fullCommand);
+            $parsed = $this->parseSyncOutput($raw['stdout'], $marker);
+            if ($parsed['stdout'] !== '') {
+                yield ['type' => 'stdout', 'data' => $parsed['stdout']];
+            }
+            if ($raw['stderr'] !== '') {
+                yield ['type' => 'stderr', 'data' => $raw['stderr']];
+            }
+            yield ['type' => 'exit', 'exitCode' => $raw['exitCode']];
+
+            if ($parsed['files'] !== null) {
+                $remapped = [];
+                foreach ($parsed['files'] as $remotePath => $content) {
+                    $remapped[$this->unmapPath($remotePath)] = $content;
+                }
+                $this->applySyncBack($remapped);
+            }
+            return;
+        }
+
+        $client = $this->getGrpcClient();
+        $request = new \AgentHarness\Generated\OpenShell\ExecSandboxRequest(
+            sandboxId: $this->sandboxId,
+            command: ['bash', '-c', $fullCommand],
+            env: $this->env,
+        );
+
+        $stdoutAccum = [];
+        foreach ($client->ExecSandbox($request) as $event) {
+            if ($event->stdout !== null) {
+                $chunk = $event->stdout->data;
+                $stdoutAccum[] = $chunk;
+                yield ['type' => 'stdout', 'data' => $chunk];
+            } elseif ($event->stderr !== null) {
+                yield ['type' => 'stderr', 'data' => $event->stderr->data];
+            } elseif ($event->exit !== null) {
+                yield ['type' => 'exit', 'exitCode' => $event->exit->code];
+            }
+        }
+
+        $rawStdout = implode('', $stdoutAccum);
+        $parsed = $this->parseSyncOutput($rawStdout, $marker);
+        if ($parsed['files'] !== null) {
+            $remapped = [];
+            foreach ($parsed['files'] as $remotePath => $content) {
+                $remapped[$this->unmapPath($remotePath)] = $content;
+            }
+            $this->applySyncBack($remapped);
+        }
+    }
+
     public function registerCommand(string $name, \Closure $handler): void
     {
         $this->commands[$name] = $handler;
@@ -201,7 +430,11 @@ class OpenShellGrpcDriver implements ShellDriverInterface
 
     public function capabilities(): array
     {
-        return ['custom_commands', 'remote', 'policies', 'streaming'];
+        $caps = ['custom_commands', 'remote', 'policies'];
+        if ($this->transport === 'grpc') {
+            $caps[] = 'streaming';
+        }
+        return $caps;
     }
 
     public function close(): void
@@ -209,6 +442,16 @@ class OpenShellGrpcDriver implements ShellDriverInterface
         if ($this->sandboxId !== null) {
             if ($this->execOverride !== null && is_object($this->execOverride) && method_exists($this->execOverride, 'deleteSandbox')) {
                 $this->execOverride->deleteSandbox($this->sandboxId);
+            } elseif ($this->transport === 'grpc') {
+                $client = $this->getGrpcClient();
+                $request = new \AgentHarness\Generated\OpenShell\DeleteSandboxRequest(
+                    name: $this->sandboxId,
+                );
+                try {
+                    $client->DeleteSandbox($request);
+                } catch (\Throwable) {
+                    // Best-effort cleanup
+                }
             }
             $this->sandboxId = null;
         }
@@ -221,12 +464,14 @@ class OpenShellGrpcDriver implements ShellDriverInterface
             env: $this->env,
             execOverride: $this->execOverride,
             endpoint: $this->endpoint,
-            sandboxId: null, // New sandbox on first exec
+            sandboxId: null,
             policy: $this->policy,
             sshHost: $this->sshHost,
             sshPort: $this->sshPort,
             sshUser: $this->sshUser,
             workspace: $this->workspace,
+            transport: $this->transport,
+            grpcClient: $this->grpcClient,
         );
         $new->fsDriver = $this->fsDriver->cloneFs();
         $new->commands = $this->commands;

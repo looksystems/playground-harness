@@ -2,7 +2,7 @@
 
 ## Status
 
-Revised — updated to SSH-based communication for all languages (2026-03-17)
+Revised — added native gRPC transport alongside SSH (2026-03-17)
 
 ## Context
 
@@ -93,11 +93,25 @@ Minimal — only SSH binary on PATH:
 
 ### Capabilities
 
-The OpenShell driver advertises `{"custom_commands", "remote", "policies", "streaming"}` via the `capabilities()` method introduced in ADR 0030. Note that `streaming` is aspirational — it requires a future gRPC transport to actually deliver real-time chunks.
+The OpenShell driver advertises `{"custom_commands", "remote", "policies", "streaming"}` via the `capabilities()` method introduced in ADR 0030. The `custom_commands` capability is functional via local first-word interception: registered commands are matched against the first token of the command string and dispatched in the host process, skipping SSH entirely. Custom commands don't participate in VFS sync. Note that `streaming` is aspirational — it requires a future gRPC transport to actually deliver real-time chunks.
 
-### Future: gRPC transport variant
+### Native gRPC transport
 
-If OpenShell exposes a client-facing gRPC API in the future, adding an `openshell-grpc` driver variant would be straightforward — the sync logic, VFS, workspace remapping, and test infrastructure are all protocol-agnostic. The SSH driver would remain as the default since it requires no dependencies. The `_rawExec()` method is the only protocol-specific code.
+The driver now supports a `transport` parameter (`"ssh"` or `"grpc"`) that selects the communication protocol. When `transport="grpc"`, the driver uses native gRPC via the OpenShell proto API (`ExecSandbox`, `CreateSandbox`, `DeleteSandbox`).
+
+**Architecture per language:**
+- **Python**: `grpcio` with `OpenShellStub(grpc.insecure_channel(endpoint))`
+- **TypeScript**: `@grpc/grpc-js` + `@grpc/proto-loader` with dynamic proto loading. Sync `exec()` uses a subprocess bridge (`grpc-sync-bridge.ts`) that makes async gRPC calls and returns results synchronously.
+- **PHP**: `grpc/grpc` PECL extension with `OpenShellClient`
+
+**What gRPC enables:**
+- **Streaming exec**: `execStream()` method yields `ExecStreamEvent` objects (stdout/stderr/exit) in real-time via server-streaming RPC
+- **Proper sandbox lifecycle**: `CreateSandbox` on first exec, `DeleteSandbox` on close
+- **Policy mapping**: `OpenShellPolicy` is mapped to proto `SandboxSpec` with filesystem, network, and inference policies
+
+**SSH remains the default** — it requires zero dependencies and works everywhere. The `streaming` capability is only reported when `transport="grpc"`.
+
+**Proto vendoring**: The 3 proto files are vendored from `NVIDIA/OpenShell/proto/` into `proto/openshell/`. Hand-written stubs are committed; `make proto` regenerates from protoc when available.
 
 ## Consequences
 
@@ -107,4 +121,6 @@ If OpenShell exposes a client-facing gRPC API in the future, adding an `openshel
 - SSH-based communication is consistent across all three languages with zero dependencies
 - Policy objects and driver capabilities introduce a formal security model (see ADR 0030)
 - A Docker-based test sandbox (`tests/openshell-sandbox/Dockerfile`) enables live integration testing without the full OpenShell CLI
-- Streaming capability is declared but not yet functional — requires gRPC transport
+- Streaming capability is functional when using `transport="grpc"` via `execStream()`
+- Proto files vendored from NVIDIA/OpenShell with hand-written language stubs
+- Docker Compose setup enables local integration testing with a mock gRPC server
