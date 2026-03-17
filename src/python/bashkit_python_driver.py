@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 from src.python.drivers import ShellDriver, FilesystemDriver, BuiltinFilesystemDriver
@@ -35,6 +36,7 @@ class BashkitPythonDriver(ShellDriver):
         self._commands: dict[str, Callable] = {}
         self._on_not_found: Callable | None = None
         self._bash_override = bash_override
+        self._marker_factory: Callable[[], str] = lambda: f"__HARNESS_FS_SYNC_{os.urandom(8).hex()}__"
 
         # When no commands are registered, use Bash; otherwise ScriptedTool
         self._bash = bash_override or self._create_bash()
@@ -109,7 +111,7 @@ class BashkitPythonDriver(ShellDriver):
         self._on_not_found = callback
 
     def exec(self, command: str) -> ExecResult:
-        """Execute a command via bashkit."""
+        """Execute a command via bashkit with preamble/epilogue VFS sync."""
         executor = self._get_executor()
 
         # Sync dirty files to bashkit
@@ -127,9 +129,9 @@ class BashkitPythonDriver(ShellDriver):
             apply_sync_back(self._fs_driver, remote_files)
 
         return ExecResult(
-            stdout=result.stdout if result.stdout else "",
-            stderr=result.stderr if result.stderr else "",
-            exit_code=result.exit_code if result.exit_code else 0,
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+            exit_code=result.exit_code or 0,
         )
 
     def capabilities(self) -> set[str]:
@@ -162,6 +164,7 @@ class BashkitPythonDriver(ShellDriver):
         new_driver._commands = dict(self._commands)
         new_driver._on_not_found = self._on_not_found
         new_driver._bash_override = self._bash_override
+        new_driver._marker_factory = self._marker_factory
 
         if self._bash_override is not None:
             new_driver._bash = self._bash_override

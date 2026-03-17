@@ -69,13 +69,6 @@ class DirtyTrackingFS(FilesystemDriver):
         return DirtyTrackingFS(self._inner.clone())
 
 
-# The shell script that lists all files with base64-encoded content.
-SYNC_BACK_SCRIPT = (
-    "find / -type f 2>/dev/null -exec sh -c "
-    "'for f; do printf \"===FILE:%s===\\n\" \"$f\"; base64 \"$f\"; done' _ {} +"
-)
-
-
 def build_sync_preamble(fs_driver: DirtyTrackingFS) -> list[str]:
     """Build shell commands to sync dirty VFS files to a remote shell.
 

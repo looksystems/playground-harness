@@ -39,7 +39,7 @@ Wraps the `bashkit` Python package (PyO3-compiled native extension):
 
 - Uses `bashkit.Bash` for basic execution
 - Switches to `bashkit.ScriptedTool` when custom commands are registered (callbacks become bash builtins)
-- **VFS sync**: Hybrid lazy — tracks dirty files via `_DirtyTrackingFS` wrapper, syncs only changed files before exec, diffs bashkit VFS after exec
+- **VFS sync**: Preamble/epilogue pattern (same as TS/PHP, in-process transport) — tracks dirty files via `_DirtyTrackingFS` wrapper, combines preamble + command + epilogue into a single `execute_sync` call
 - **Custom commands**: `register_command(name, handler)` maps to `ScriptedTool.add_tool()` with signature adaptation
 
 ```python
@@ -47,10 +47,15 @@ from bashkit import Bash, ScriptedTool
 
 class BashkitPythonDriver(ShellDriver):
     def exec(self, command):
-        self._sync_dirty_to_bashkit()
-        result = self._bash.execute_sync(command)
-        self._sync_changes_from_bashkit()
-        return ExecResult(...)
+        preamble = self._build_sync_preamble()
+        marker = self._marker_factory()
+        epilogue = self._build_sync_epilogue(marker)
+        full = f"{preamble} && {command}{epilogue}" if preamble else f"{command}{epilogue}"
+        result = self._bash.execute_sync(full)
+        stdout, files = self._parse_sync_output(result.stdout, marker)
+        if files is not None:
+            self._apply_sync_back(files)
+        return ExecResult(stdout=stdout, ...)
 ```
 
 **Install**: `pip install bashkit`
@@ -91,24 +96,21 @@ Each language has a single resolution path:
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
 | State persistence between exec() | Yes | No | No |
 | Custom command callbacks | Yes (ScriptedTool) | No | No |
-| VFS sync | Hybrid lazy (bidirectional) | Preamble/epilogue (bidirectional) | Preamble/epilogue (bidirectional) |
+| VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (subprocess) | Preamble/epilogue (subprocess) |
 | Async support | Yes (execute/execute_sync) | Sync only | Sync only |
 
-### VFS Sync Strategies
+### VFS Sync Strategy (Preamble/Epilogue — All Languages)
 
-**Python (in-process):**
+All three languages use the same preamble/epilogue pattern for VFS sync:
+
 - `_DirtyTrackingFS` wrapper tracks written/removed files
-- Before exec: only dirty files are synced to bashkit via base64-encoded commands
-- After exec: a single batched `find + base64` command reads all bashkit files back, diffs against VFS, and applies changes
-- Content encoding uses base64 to handle special characters (quotes, backslashes, percent signs, newlines)
-
-**TypeScript / PHP (CLI subprocess):**
-- Same `DirtyTrackingFS` wrapper pattern as Python
 - Before exec (preamble): dirty files are injected as base64-encoded shell commands prepended to the user's command
 - After exec (epilogue): a `find + base64` command is appended after the user's command with a unique marker separator
 - The driver parses stdout to split user output from sync data using the marker
 - Exit code is preserved by capturing `$?` before the epilogue runs
-- Shell state (variables, functions) still does NOT persist between exec() calls — each invocation is a new subprocess
+- Content encoding uses base64 to handle special characters (quotes, backslashes, percent signs, newlines)
+
+The only difference is the transport: Python runs everything in-process via PyO3 (`execute_sync`), while TypeScript/PHP spawn a `bashkit -c` subprocess per `exec()` call. Shell state (variables, functions) persists in Python (same `Bash` instance) but not in TS/PHP (new process each time).
 
 ## Consequences
 

@@ -135,32 +135,24 @@ The `BashkitPythonDriver` wraps the `bashkit` Python package, which is a Rust na
 **Key features:**
 - **Stateful** — shell state (variables, functions) persists between `exec()` calls within the same driver instance
 - **Custom commands** — `register_command()` uses bashkit's `ScriptedTool` to register Python callbacks as bash builtins
-- **VFS sync** — hybrid lazy sync tracks dirty files and syncs only changes before/after each `exec()`
-
-**VFS synchronization:**
-
-The host's `FilesystemDriver` remains the source of truth. A `_DirtyTrackingFS` wrapper intercepts writes to track which files have changed since the last exec:
-
-1. Before exec: only dirty files are written into bashkit's VFS via base64-encoded commands
-2. The command executes in bashkit's interpreter
-3. After exec: a batched `find + base64` command reads all bashkit files back; changes are diffed and applied to the host FS
-
-Content is base64-encoded during sync to safely handle special characters (quotes, backslashes, percent signs, newlines, binary content).
+- **VFS sync** — preamble/epilogue pattern (same as TS/PHP, in-process transport)
 
 ### TypeScript / PHP: CLI Subprocess
 
 The `BashkitCLIDriver` spawns `bashkit -c 'command'` for each `exec()` call. Each invocation creates a fresh bashkit instance.
 
-**VFS synchronization (preamble/epilogue):**
+### VFS Synchronization (All Languages)
 
-Despite being stateless at the process level, the CLI driver maintains VFS consistency across exec() calls using the same `DirtyTrackingFS` pattern as Python:
+All three languages use the same preamble/epilogue pattern for VFS sync. The host's `FilesystemDriver` remains the source of truth. A `DirtyTrackingFS` wrapper intercepts writes to track which files have changed since the last exec:
 
 1. Before exec (preamble): dirty files are injected as base64-encoded shell commands prepended to the user's command
-2. The combined script runs in a single bashkit subprocess
+2. The combined script (preamble + command + epilogue) runs in a single call
 3. After exec (epilogue): a `find + base64` command appended with a unique marker dumps all file state
 4. The driver parses stdout to split user output from sync data, and applies changes back to the host VFS
 
-The exit code from the user's command is preserved by capturing `$?` before the epilogue runs.
+The exit code from the user's command is preserved by capturing `$?` before the epilogue runs. Content is base64-encoded during sync to safely handle special characters (quotes, backslashes, percent signs, newlines, binary content).
+
+The only difference is the transport: Python runs in-process via PyO3 (`execute_sync` on the same `Bash` instance), while TS/PHP spawn a subprocess.
 
 **Limitations:**
 - **No persistent shell state** — variables, functions, and aliases don't persist between `exec()` calls (new process each time)
@@ -254,7 +246,7 @@ agent = await (
 | In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
 | Shell state persistence between exec() | Yes | No | No |
 | Custom command callbacks | Yes (ScriptedTool) | No | No |
-| VFS sync | Hybrid lazy (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
+| VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
 | Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
 
 ---
