@@ -28,5 +28,7 @@ enum HookEvent: string
     case SkillUnmount = 'skill_unmount';
     case SkillSetup = 'skill_setup';
     case SkillTeardown = 'skill_teardown';
+    case ShellStdoutChunk = 'shell_stdout_chunk';
+    case ShellStderrChunk = 'shell_stderr_chunk';
     case HookError = 'hook_error';
 }

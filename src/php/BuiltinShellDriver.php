@@ -40,6 +40,8 @@ class BuiltinShellDriver implements ShellDriverInterface
         return self::fromShell($cloned);
     }
 
+    public function capabilities(): array { return ['custom_commands', 'stateful']; }
+
     public function setOnNotFound(?\Closure $callback): void { $this->shell->onNotFound = $callback; }
     public function getOnNotFound(): ?\Closure { return $this->shell->onNotFound; }
 

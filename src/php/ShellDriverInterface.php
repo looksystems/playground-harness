@@ -16,4 +16,7 @@ interface ShellDriverInterface
     public function cloneDriver(): ShellDriverInterface;
     public function setOnNotFound(?\Closure $callback): void;
     public function getOnNotFound(): ?\Closure;
+
+    /** @return list<string> */
+    public function capabilities(): array;
 }

@@ -34,6 +34,8 @@ class HookEvent(str, Enum):
     SKILL_UNMOUNT = "skill_unmount"
     SKILL_SETUP = "skill_setup"
     SKILL_TEARDOWN = "skill_teardown"
+    SHELL_STDOUT_CHUNK = "shell_stdout_chunk"
+    SHELL_STDERR_CHUNK = "shell_stderr_chunk"
 
 
 class HasHooks:

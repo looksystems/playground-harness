@@ -8,59 +8,10 @@ if (!class_exists(ExecResult::class, false)) {
     class_exists(Shell::class);
 }
 
-class DirtyTrackingFS implements FilesystemDriver
-{
-    private FilesystemDriver $inner;
-    /** @var array<string, true> */
-    private array $dirty = [];
-
-    public function __construct(FilesystemDriver $inner)
-    {
-        $this->inner = $inner;
-    }
-
-    public function inner(): FilesystemDriver { return $this->inner; }
-
-    /** @return list<string> */
-    public function getDirty(): array { return array_keys($this->dirty); }
-
-    public function clearDirty(): void { $this->dirty = []; }
-
-    public function write(string $path, string $content): void
-    {
-        $this->inner->write($path, $content);
-        $this->dirty[$path] = true;
-    }
-
-    public function writeLazy(string $path, \Closure $provider): void
-    {
-        $this->inner->writeLazy($path, $provider);
-        $this->dirty[$path] = true;
-    }
-
-    public function read(string $path): string { return $this->inner->read($path); }
-    public function readText(string $path): string { return $this->inner->readText($path); }
-    public function exists(string $path): bool { return $this->inner->exists($path); }
-
-    public function remove(string $path): void
-    {
-        $this->inner->remove($path);
-        $this->dirty[$path] = true;
-    }
-
-    public function isDir(string $path): bool { return $this->inner->isDir($path); }
-    public function listdir(string $path = '/'): array { return $this->inner->listdir($path); }
-    public function find(string $root = '/', string $pattern = '*'): array { return $this->inner->find($root, $pattern); }
-    public function stat(string $path): array { return $this->inner->stat($path); }
-
-    public function cloneFs(): FilesystemDriver
-    {
-        return new self($this->inner->cloneFs());
-    }
-}
-
 class BashkitCLIDriver implements ShellDriverInterface
 {
+    use RemoteSyncTrait;
+
     private string $cwd;
     private array $env;
     private DirtyTrackingFS $fsDriver;
@@ -83,100 +34,6 @@ class BashkitCLIDriver implements ShellDriverInterface
     public function fs(): FilesystemDriver { return $this->fsDriver; }
     public function cwd(): string { return $this->cwd; }
     public function env(): array { return $this->env; }
-
-    private function buildSyncPreamble(): string
-    {
-        $commands = [];
-        foreach ($this->fsDriver->getDirty() as $path) {
-            if ($this->fsDriver->exists($path) && !$this->fsDriver->isDir($path)) {
-                $content = $this->fsDriver->readText($path);
-                $encoded = base64_encode($content);
-                $commands[] = "mkdir -p \$(dirname '{$path}') && printf '%s' '{$encoded}' | base64 -d > '{$path}'";
-            } elseif (!$this->fsDriver->exists($path)) {
-                $commands[] = "rm -f '{$path}'";
-            }
-        }
-        $this->fsDriver->clearDirty();
-        return count($commands) > 0 ? implode(' && ', $commands) : '';
-    }
-
-    private function buildSyncEpilogue(string $marker): string
-    {
-        return "; __exit=\$?; printf '\\n" . $marker . "\\n';"
-            . ' find / -type f 2>/dev/null -exec sh -c'
-            . " 'for f; do printf \"===FILE:%s===\\n\" \"\$f\"; base64 \"\$f\"; done' _ {} +;"
-            . ' exit $__exit';
-    }
-
-    /**
-     * @return array{stdout: string, files: array<string, string>|null}
-     */
-    private function parseSyncOutput(string $raw, string $marker): array
-    {
-        $markerPos = strpos($raw, "\n{$marker}\n");
-        if ($markerPos === false) {
-            return ['stdout' => $raw, 'files' => null];
-        }
-        $files = [];
-        $stdout = substr($raw, 0, $markerPos);
-        $syncData = substr($raw, $markerPos + strlen($marker) + 2);
-
-        $fileMarker = '===FILE:';
-        $endMarker = '===';
-        $currentPath = null;
-        $contentLines = [];
-
-        foreach (explode("\n", $syncData) as $line) {
-            if (str_starts_with($line, $fileMarker) && str_ends_with($line, $endMarker) && strlen($line) > strlen($fileMarker) + strlen($endMarker)) {
-                if ($currentPath !== null) {
-                    $encoded = implode('', $contentLines);
-                    $decoded = base64_decode($encoded, true);
-                    $files[$currentPath] = $decoded !== false ? $decoded : $encoded;
-                }
-                $currentPath = substr($line, strlen($fileMarker), -(strlen($endMarker)));
-                $contentLines = [];
-            } elseif ($currentPath !== null) {
-                $contentLines[] = $line;
-            }
-        }
-        if ($currentPath !== null) {
-            $encoded = implode('', $contentLines);
-            $decoded = base64_decode($encoded, true);
-            $files[$currentPath] = $decoded !== false ? $decoded : $encoded;
-        }
-
-        return ['stdout' => $stdout, 'files' => $files];
-    }
-
-    /**
-     * @param array<string, string> $files
-     */
-    private function applySyncBack(array $files): void
-    {
-        $vfsFiles = [];
-        foreach ($this->fsDriver->find('/', '*') as $path) {
-            if (!$this->fsDriver->isDir($path)) {
-                $vfsFiles[$path] = true;
-            }
-        }
-
-        foreach ($files as $path => $content) {
-            if (!isset($vfsFiles[$path])) {
-                $this->fsDriver->inner()->write($path, $content);
-            } else {
-                $existing = $this->fsDriver->readText($path);
-                if ($existing !== $content) {
-                    $this->fsDriver->inner()->write($path, $content);
-                }
-            }
-        }
-
-        foreach (array_keys($vfsFiles) as $path) {
-            if (!isset($files[$path]) && $this->fsDriver->exists($path)) {
-                $this->fsDriver->inner()->remove($path);
-            }
-        }
-    }
 
     /**
      * @return array{stdout: string, stderr: string, exitCode: int}
@@ -249,6 +106,11 @@ class BashkitCLIDriver implements ShellDriverInterface
     public function hasCommand(string $name): bool
     {
         return isset($this->commands[$name]);
+    }
+
+    public function capabilities(): array
+    {
+        return ['custom_commands', 'remote'];
     }
 
     public function cloneDriver(): ShellDriverInterface

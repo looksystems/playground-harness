@@ -1,6 +1,14 @@
 import { VirtualFS } from "./virtual-fs.js";
 import { Shell, type ExecResult, type CmdHandler, type ShellOptions } from "./shell.js";
 
+export interface ShellSecurityPolicy {
+  allowedCommands?: Set<string>;
+  writablePaths?: string[];
+  maxOutput?: number;
+  maxIterations?: number;
+  readOnly?: boolean;
+}
+
 export interface FilesystemDriver {
   write(path: string, content: string): void;
   writeLazy(path: string, provider: () => string): void;
@@ -46,6 +54,7 @@ export interface ShellDriver {
   registerCommand(name: string, handler: CmdHandler): void;
   unregisterCommand(name: string): void;
   clone(): ShellDriver;
+  capabilities(): Set<string>;
 }
 
 export interface ShellDriverOptions {
@@ -92,6 +101,8 @@ export class BuiltinShellDriver implements ShellDriver {
     driver._opts = { ...this._opts };
     return driver;
   }
+
+  capabilities(): Set<string> { return new Set(["custom_commands", "stateful"]); }
 
   get shell(): Shell { return this._shell; }
 

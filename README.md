@@ -7,7 +7,7 @@ A lightweight, composable framework for building LLM-powered agents. Implemented
 
 Harness has two distinctive features. 
 
-The **virtual shell** replaces per-query tools with an in-memory filesystem and shell interpreter — you mount context as files and let the model explore with Unix commands (`grep`, `cat`, `find`, `jq`) it already knows. Register custom commands (`deploy`, `validate`, etc.) that compose naturally with pipes and control flow. Every command is pure emulation with no security risk. The shell backend is swappable via a driver architecture — the builtin pure-language shell works out of the box, or switch to [bashkit](https://github.com/everruns/bashkit) for full POSIX compliance and 100+ builtins with a single `driver("bashkit")` call.
+The **virtual shell** replaces per-query tools with an in-memory filesystem and shell interpreter — you mount context as files and let the model explore with Unix commands (`grep`, `cat`, `find`, `jq`) it already knows. Register custom commands (`deploy`, `validate`, etc.) that compose naturally with pipes and control flow. Every command is pure emulation with no security risk. The shell backend is swappable via a driver architecture — the builtin pure-language shell works out of the box, switch to [bashkit](https://github.com/everruns/bashkit) for full POSIX compliance, or use [OpenShell](https://github.com/NVIDIA/OpenShell) for secure sandboxed execution with policy enforcement.
 
 The **inline event system** uses a convention-based YAML format where the last field in an event block is automatically streamable — no special syntax or schema annotations needed. Events are buffered by default; streaming is opt-in per field, and the parser handles framing, async iteration, and backpressure transparently.
 
@@ -40,6 +40,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 
 - [Virtual Bash](docs/guides/virtual-bash-reference.md) — Supported syntax, commands, and limitations
 - [Bashkit](docs/guides/bashkit.md) — POSIX shell driver setup, usage, and custom commands
+- [OpenShell](docs/guides/openshell.md) — Secure sandboxed execution with gRPC, policy enforcement, and streaming
 
 ### Architecture Decision Records
 

@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from src.python.virtual_fs import VirtualFS
+
+
+@dataclass
+class ShellSecurityPolicy:
+    """Composable security policy for shell drivers.
+
+    Formalizes security constraints that were previously scattered across
+    constructor parameters. Inspired by OpenShell's multi-layer policy model.
+    """
+
+    allowed_commands: set[str] | None = None
+    writable_paths: list[str] | None = None
+    max_output: int = 16_000
+    max_iterations: int = 10_000
+    read_only: bool = False
 
 
 class FilesystemDriver(ABC):
@@ -123,6 +139,14 @@ class ShellDriver(ABC):
     @abstractmethod
     def on_not_found(self, callback: Callable | None) -> None: ...
 
+    def capabilities(self) -> set[str]:
+        """Return the set of capabilities this driver supports.
+
+        Known capabilities: "custom_commands", "stateful", "streaming",
+        "policies", "remote".
+        """
+        return set()
+
 
 class BuiltinShellDriver(ShellDriver):
     """Wraps the existing Shell as a ShellDriver."""
@@ -184,6 +208,9 @@ class BuiltinShellDriver(ShellDriver):
     def _custom_commands(self) -> dict:
         """Expose Shell internals for backward compatibility."""
         return self._shell._custom_commands
+
+    def capabilities(self) -> set[str]:
+        return {"custom_commands", "stateful"}
 
     @staticmethod
     def from_shell(shell: Shell) -> BuiltinShellDriver:
