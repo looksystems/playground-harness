@@ -1,13 +1,13 @@
 // Package builtin — default builtin registration.
 //
-// NewDefaultBuiltinRegistry installs the 31 built-in commands ported
+// NewDefaultBuiltinRegistry installs the 30 built-in commands ported
 // from src/python/shell.py (the `_cmd_*` family). Callers wire this
 // registry into an Evaluator via Evaluator.Builtins; the driver (M2.8)
 // will use it directly.
 package builtin
 
 // NewDefaultBuiltinRegistry returns a BuiltinRegistry pre-loaded with
-// the 31 built-in commands. The returned registry is independent — any
+// the 30 built-in commands. The returned registry is independent — any
 // mutation (Register / Unregister) affects only this instance.
 func NewDefaultBuiltinRegistry() *BuiltinRegistry {
 	r := NewBuiltinRegistry()
@@ -45,7 +45,7 @@ func NewDefaultBuiltinRegistry() *BuiltinRegistry {
 	r.Register("export", BuiltinExport)
 	r.Register("printf", BuiltinPrintf)
 
-	// Control (6)
+	// Control (5)
 	r.Register("test", BuiltinTest)
 	r.Register("[", BuiltinBracket)
 	r.Register("[[", BuiltinDoubleBracket)

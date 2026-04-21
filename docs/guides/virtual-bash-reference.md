@@ -393,7 +393,7 @@ These are bash features that the virtual shell intentionally does not support:
 
 ### Commands
 
-Many standard Unix utilities are absent (e.g., `awk`, `xargs`, `diff`, `date`, `basename`, `dirname`, `readlink`, `seq`, `yes`, `env`, `read`). The 31 built-in commands cover the most common patterns for context exploration. Additional commands can be registered at runtime via `registerCommand()`.
+Many standard Unix utilities are absent (e.g., `awk`, `xargs`, `diff`, `date`, `basename`, `dirname`, `readlink`, `seq`, `yes`, `env`, `read`). The 30 built-in commands cover the most common patterns for context exploration. Additional commands can be registered at runtime via `registerCommand()`.
 
 ### Other
 
