@@ -44,10 +44,32 @@ import (
 
 // BuiltinShellDriver implements shell.Driver using the pure-Go interpreter
 // defined in this package (tokenizer → parser → expansion → evaluator).
+//
+// Concurrency model (post-review-fix I3):
+//
+//   - execMu is a plain sync.Mutex that serialises Execute calls. It is
+//     held for the full duration of every Exec so the non-thread-safe
+//     Evaluator is only driven by one goroutine at a time.
+//   - mu is a sync.RWMutex that protects the publicly-observable
+//     snapshot fields (cwd, env). Readers take RLock briefly and copy
+//     the snapshot; Exec takes mu.Lock ONLY at its commit point to
+//     publish the post-run state into those fields.
+//
+// Readers no longer block for the duration of a long Exec — in the old
+// implementation, CWD() and Env() contended with the single mu.Lock
+// held across the whole Evaluator run. Now they only wait for the
+// short commit.
 type BuiltinShellDriver struct {
-	mu   sync.RWMutex
-	fs   vfs.FilesystemDriver
-	eval *Evaluator
+	mu     sync.RWMutex
+	execMu sync.Mutex
+	fs     vfs.FilesystemDriver
+	eval   *Evaluator
+	// cwd/env are the publicly-observable snapshots of the evaluator
+	// state, published at the end of each Exec. Readers see the last
+	// committed snapshot; they never see the live mid-run map the
+	// evaluator is mutating.
+	cwd string
+	env map[string]string
 	// userCmds tracks names registered via RegisterCommand so Clone can
 	// replicate them in the new driver's registry.
 	userCmds map[string]shell.CmdHandler
@@ -79,10 +101,46 @@ func WithEnv(env map[string]string) Option {
 	}
 }
 
-// WithSecurityPolicy attaches a security policy (currently recorded but
-// not enforced by the builtin driver).
+// WithSecurityPolicy attaches a security policy. When the policy's
+// AllowedCommands slice is non-empty, the default builtin registry is
+// filtered down to just those commands, matching Python's
+// Shell(allowed_commands=...) semantics. Custom commands registered
+// later via RegisterCommand are always available regardless of the
+// policy — only the initial built-in set is filtered.
+//
+// Other fields on the policy (FilesystemAllow, NetworkRules, Inference)
+// are recorded but not enforced by the builtin driver; OpenShell's
+// sandboxed drivers consume those.
 func WithSecurityPolicy(p *shell.SecurityPolicy) Option {
-	return func(d *BuiltinShellDriver) { d.policy = p }
+	return func(d *BuiltinShellDriver) {
+		d.policy = p
+		if p == nil || len(p.AllowedCommands) == 0 {
+			return
+		}
+		d.eval.Builtins = filteredDefaultRegistry(p.AllowedCommands)
+	}
+}
+
+// filteredDefaultRegistry returns a BuiltinRegistry containing only the
+// default builtins whose name appears in allowed. Names in allowed that
+// are not default builtins are ignored — users who want unknown names
+// to resolve must register them via Driver.RegisterCommand.
+func filteredDefaultRegistry(allowed []string) *BuiltinRegistry {
+	full := NewDefaultBuiltinRegistry()
+	filtered := NewBuiltinRegistry()
+	allowSet := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		allowSet[name] = struct{}{}
+	}
+	for _, name := range full.Names() {
+		if _, ok := allowSet[name]; !ok {
+			continue
+		}
+		if h, ok := full.Get(name); ok {
+			filtered.Register(name, h)
+		}
+	}
+	return filtered
 }
 
 // NewBuiltinShellDriver constructs a driver with sensible defaults:
@@ -110,6 +168,13 @@ func NewBuiltinShellDriver(opts ...Option) *BuiltinShellDriver {
 	}
 	// Keep d.fs and d.eval.FS in sync when WithFS was applied.
 	d.eval.FS = d.fs
+	// Seed the public snapshot from the evaluator's initial state so
+	// CWD()/Env() work correctly before the first Exec.
+	d.cwd = d.eval.CWD
+	d.env = make(map[string]string, len(d.eval.Env))
+	for k, v := range d.eval.Env {
+		d.env[k] = v
+	}
 	return d
 }
 
@@ -117,36 +182,67 @@ func NewBuiltinShellDriver(opts ...Option) *BuiltinShellDriver {
 // shell.Driver implementation
 // ---------------------------------------------------------------------------
 
-// FS returns the filesystem backing this driver.
+// FS returns the filesystem backing this driver. FS is immutable for
+// the lifetime of the driver (only Clone allocates a new one) so the
+// RLock is a near-instant read.
 func (d *BuiltinShellDriver) FS() vfs.FilesystemDriver {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.fs
 }
 
-// CWD returns the current working directory.
+// CWD returns the current working directory. Readers take a brief
+// RLock on the committed snapshot and do not block on an in-flight
+// Exec — see the type-level comment for the lock split rationale.
 func (d *BuiltinShellDriver) CWD() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.eval.CWD
+	return d.cwd
 }
 
-// Env returns a defensive copy of the current environment.
+// Env returns a defensive copy of the current environment. Readers
+// take a brief RLock on the committed snapshot and do not block on an
+// in-flight Exec.
 func (d *BuiltinShellDriver) Env() map[string]string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	m := make(map[string]string, len(d.eval.Env))
-	for k, v := range d.eval.Env {
+	m := make(map[string]string, len(d.env))
+	for k, v := range d.env {
 		m[k] = v
 	}
 	return m
 }
 
-// Exec parses and evaluates command. Concurrent calls are serialised.
+// Exec parses and evaluates command. Concurrent Exec calls are
+// serialised via execMu so the non-thread-safe Evaluator is only
+// driven by one goroutine at a time. execMu is a plain Mutex — distinct
+// from mu — so reader goroutines calling CWD / Env / FS see the
+// previously-committed snapshot without waiting for a long-running
+// Exec to finish.
+//
+// After Execute returns, Exec briefly takes mu.Lock to publish the
+// evaluator's post-run CWD and a copy of its Env map into the snapshot
+// fields. Mid-Exec readers therefore see a pre-Exec view, not torn
+// intermediate state; post-Exec readers see the result.
 func (d *BuiltinShellDriver) Exec(ctx context.Context, command string) (shell.ExecResult, error) {
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
+
+	result, err := d.eval.Execute(ctx, command)
+
+	// Publish the post-run snapshot. A fresh copy of Env ensures
+	// readers that retain a map returned by Env() aren't racing with
+	// the evaluator's in-place mutations on the next Exec.
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.eval.Execute(ctx, command)
+	d.cwd = d.eval.CWD
+	newEnv := make(map[string]string, len(d.eval.Env))
+	for k, v := range d.eval.Env {
+		newEnv[k] = v
+	}
+	d.env = newEnv
+	d.mu.Unlock()
+
+	return result, err
 }
 
 // ExecStream runs command synchronously then emits events on the returned
@@ -184,17 +280,21 @@ func (d *BuiltinShellDriver) ExecStream(ctx context.Context, command string) (<-
 // RegisterCommand adds (or replaces) a user-defined command. The handler is
 // wrapped into a Builtin and installed in the evaluator's registry, and also
 // stored in d.userCmds so Clone can reproduce it.
+//
+// execMu is held so a concurrent Exec cannot observe a partially-
+// registered name (the BuiltinRegistry has its own mutex but we also
+// want d.userCmds to stay consistent with it).
 func (d *BuiltinShellDriver) RegisterCommand(name string, handler shell.CmdHandler) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
 	d.eval.Builtins.RegisterUser(name, handler)
 	d.userCmds[name] = handler
 }
 
 // UnregisterCommand removes a previously registered command.
 func (d *BuiltinShellDriver) UnregisterCommand(name string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
 	d.eval.Builtins.Unregister(name)
 	delete(d.userCmds, name)
 }
@@ -204,6 +304,9 @@ func (d *BuiltinShellDriver) UnregisterCommand(name string) {
 // default builtin registry plus any user-registered commands, and the
 // same not-found handler reference.
 func (d *BuiltinShellDriver) Clone() shell.Driver {
+	// Serialise against in-flight Exec so we don't clone a torn map.
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -215,6 +318,9 @@ func (d *BuiltinShellDriver) Clone() shell.Driver {
 	}
 
 	reg := NewDefaultBuiltinRegistry()
+	if d.policy != nil && len(d.policy.AllowedCommands) > 0 {
+		reg = filteredDefaultRegistry(d.policy.AllowedCommands)
+	}
 	clonedUserCmds := make(map[string]shell.CmdHandler, len(d.userCmds))
 	for name, handler := range d.userCmds {
 		reg.RegisterUser(name, handler)
@@ -225,6 +331,14 @@ func (d *BuiltinShellDriver) Clone() shell.Driver {
 		fs:       clonedFS,
 		userCmds: clonedUserCmds,
 		policy:   d.policy, // shallow copy; SecurityPolicy is read-only
+		cwd:      d.cwd,
+		env: func() map[string]string {
+			m := make(map[string]string, len(d.env))
+			for k, v := range d.env {
+				m[k] = v
+			}
+			return m
+		}(),
 		eval: &Evaluator{
 			FS:              clonedFS,
 			CWD:             d.eval.CWD,
@@ -242,15 +356,15 @@ func (d *BuiltinShellDriver) Clone() shell.Driver {
 
 // NotFoundHandler returns the current not-found handler.
 func (d *BuiltinShellDriver) NotFoundHandler() shell.NotFoundHandler {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
 	return d.eval.NotFoundHandler
 }
 
 // SetNotFoundHandler replaces the not-found handler (pass nil to clear).
 func (d *BuiltinShellDriver) SetNotFoundHandler(h shell.NotFoundHandler) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
 	d.eval.NotFoundHandler = h
 }
 

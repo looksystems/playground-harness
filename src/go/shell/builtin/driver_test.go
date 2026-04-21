@@ -405,3 +405,131 @@ func TestFactory_UnknownDriver(t *testing.T) {
 	_, err := shell.DefaultFactory.Create("nonexistent_driver_xyz", nil)
 	assert.Error(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// SecurityPolicy.AllowedCommands — Fix 9 (review I8)
+// ---------------------------------------------------------------------------
+
+func TestBuiltinShellDriver_SecurityPolicy_AllowedCommandsFilter(t *testing.T) {
+	d := builtin.NewBuiltinShellDriver(
+		builtin.WithSecurityPolicy(&shell.SecurityPolicy{
+			AllowedCommands: []string{"echo", "cat"},
+		}),
+	)
+
+	// Allowed commands still work.
+	res := execOK(t, d, "echo hello")
+	assert.Equal(t, "hello\n", res.Stdout)
+	assert.Equal(t, 0, res.ExitCode)
+
+	// Disallowed commands resolve to "command not found".
+	res, err := d.Exec(context.Background(), "ls")
+	require.NoError(t, err)
+	assert.NotEqual(t, 0, res.ExitCode, "filtered command must not succeed")
+	assert.Contains(t, res.Stderr, "command not found")
+}
+
+func TestBuiltinShellDriver_SecurityPolicy_EmptyAllowList_Permissive(t *testing.T) {
+	// An empty AllowedCommands slice is equivalent to "no filter" —
+	// matches Python's `allowed_commands=None` semantics.
+	d := builtin.NewBuiltinShellDriver(
+		builtin.WithSecurityPolicy(&shell.SecurityPolicy{}),
+	)
+	res := execOK(t, d, "echo hi")
+	assert.Equal(t, "hi\n", res.Stdout)
+	// And ls still works with an empty filesystem at /.
+	res = execOK(t, d, "ls /")
+	assert.Equal(t, 0, res.ExitCode)
+}
+
+func TestBuiltinShellDriver_SecurityPolicy_CustomCommandsBypassFilter(t *testing.T) {
+	d := builtin.NewBuiltinShellDriver(
+		builtin.WithSecurityPolicy(&shell.SecurityPolicy{
+			AllowedCommands: []string{"echo"},
+		}),
+	)
+	// Register a custom command after the policy filter is applied —
+	// the filter does not retroactively block it.
+	d.RegisterCommand("greet", func(args []string, _ string) shell.ExecResult {
+		name := "world"
+		if len(args) > 0 {
+			name = args[0]
+		}
+		return shell.ExecResult{Stdout: "hi " + name + "\n"}
+	})
+	res := execOK(t, d, "greet there")
+	assert.Equal(t, "hi there\n", res.Stdout)
+}
+
+func TestBuiltinShellDriver_SecurityPolicy_SurvivesClone(t *testing.T) {
+	d := builtin.NewBuiltinShellDriver(
+		builtin.WithSecurityPolicy(&shell.SecurityPolicy{
+			AllowedCommands: []string{"echo"},
+		}),
+	)
+	cloned := d.Clone()
+	res, err := cloned.Exec(context.Background(), "ls")
+	require.NoError(t, err)
+	assert.NotEqual(t, 0, res.ExitCode, "clone must carry policy filter")
+	assert.Contains(t, res.Stderr, "command not found")
+}
+
+// ---------------------------------------------------------------------------
+// Lock granularity — Fix 7 (review I3)
+//
+// Readers (CWD / Env) must return promptly even while another goroutine
+// is mid-Exec. Before the fix, Exec held the writer lock for the whole
+// evaluator run, so a loop-heavy command blocked readers.
+// ---------------------------------------------------------------------------
+
+func TestBuiltinShellDriver_Exec_DoesNotBlockReaders(t *testing.T) {
+	d := builtin.NewBuiltinShellDriver()
+
+	// Register a synthetic "sleep" builtin that blocks until the test
+	// closes the release channel. This simulates a long-running Exec
+	// without actually spinning.
+	release := make(chan struct{})
+	started := make(chan struct{})
+	d.RegisterCommand("blocker", func(_ []string, _ string) shell.ExecResult {
+		close(started)
+		<-release
+		return shell.ExecResult{Stdout: "done\n"}
+	})
+
+	// Fire the blocking Exec in a goroutine.
+	execDone := make(chan struct{})
+	go func() {
+		defer close(execDone)
+		_, err := d.Exec(context.Background(), "blocker")
+		require.NoError(t, err)
+	}()
+
+	// Wait until the builtin has actually started — at which point the
+	// driver's execMu is held.
+	<-started
+
+	// Now ensure readers don't block. Each call should complete
+	// essentially instantly because they hold RLock on the (fast)
+	// snapshot, not the Exec writer lock.
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		for i := 0; i < 100; i++ {
+			_ = d.CWD()
+			_ = d.Env()
+			_ = d.FS()
+		}
+	}()
+
+	select {
+	case <-readDone:
+		// Readers finished without waiting on Exec — fix 7 is effective.
+	case <-execDone:
+		t.Fatalf("Exec finished before readers even tried; test invariant broken")
+	}
+
+	// Let the Exec finish and wait for it to clean up so -race has no
+	// outstanding goroutines at the end of the test.
+	close(release)
+	<-execDone
+}
