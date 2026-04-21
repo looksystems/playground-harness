@@ -471,6 +471,46 @@ func (s *slowBody) Read(p []byte) (int, error) {
 
 func (s *slowBody) Close() error { return nil }
 
+// gatedBody emits the first gateAt chunks immediately, then blocks until gate
+// is closed. This gives the test deterministic control over when the producer
+// is guaranteed to be wedged on a blocked channel send.
+type gatedBody struct {
+	chunks   []string
+	gateAt   int
+	gate     chan struct{}
+	closeOnce sync.Once
+	i        int
+	pending  *bytes.Reader
+}
+
+func (g *gatedBody) Read(p []byte) (int, error) {
+	for {
+		if g.pending != nil && g.pending.Len() > 0 {
+			return g.pending.Read(p)
+		}
+		if g.i >= len(g.chunks) {
+			return 0, io.EOF
+		}
+		if g.i >= g.gateAt {
+			// Block until gate is closed. Close() is called when the
+			// stream shuts down (via defer stream.Close() in openai.go),
+			// so this will not block forever even if the test cancels
+			// the context mid-stream.
+			<-g.gate
+		}
+		raw := "data: " + g.chunks[g.i] + "\n\n"
+		g.pending = bytes.NewReader([]byte(raw))
+		g.i++
+	}
+}
+
+func (g *gatedBody) Close() error {
+	// Unblock any Read that is waiting on g.gate so the reader goroutine
+	// can exit cleanly when the stream is torn down.
+	g.closeOnce.Do(func() { close(g.gate) })
+	return nil
+}
+
 func TestStream_ContextCancellation(t *testing.T) {
 	chunks := []string{
 		`{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"one "}}]}`,
@@ -536,10 +576,15 @@ func TestStream_ContextCancellation(t *testing.T) {
 // the producer is blocked trying to send, and ctx.Done() is the only ready
 // arm of the select.
 func TestStream_MidStreamCancel_EmitsTerminalErr(t *testing.T) {
-	// Many small content chunks: with the provider buffer at cap=8 we can
-	// easily exceed it without the consumer reading.
+	// Many small content chunks. We gate the HTTP body so it delivers the
+	// first 16 chunks instantly, then blocks forever — guaranteeing the
+	// producer goroutine is wedged on a blocked send (the channel buffer is
+	// cap=8 and the consumer stops reading after 1 chunk). This makes
+	// ctx.Done() the only ready arm of the select in emit(), which is
+	// exactly the path that previously silently dropped the terminal chunk.
+	const gateAt = 16
 	var chunks []string
-	for i := 0; i < 64; i++ {
+	for i := 0; i < 32; i++ {
 		chunks = append(chunks, fmt.Sprintf(`{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":%q}}]}`, fmt.Sprintf("c%02d ", i)))
 	}
 	chunks = append(chunks, `{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
@@ -547,14 +592,14 @@ func TestStream_MidStreamCancel_EmitsTerminalErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// gate is closed by the test after we know the producer is wedged.
+	gate := make(chan struct{})
+
 	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		// slowBody returns chunks instantly (zero delay) so the producer
-		// goroutine races ahead and fills the internal buffer while the
-		// consumer stays paused.
 		return &http.Response{
 			StatusCode: 200,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       &slowBody{chunks: chunks, delay: 0, ctx: ctx},
+			Body:       &gatedBody{chunks: chunks, gateAt: gateAt, gate: gate},
 		}, nil
 	})
 
@@ -565,12 +610,7 @@ func TestStream_MidStreamCancel_EmitsTerminalErr(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Drain one chunk to confirm the producer is running, then wait long
-	// enough for the internal channel buffer to fill up and wedge the
-	// producer on a blocked send. Cancel while it's wedged — that makes
-	// ctx.Done() the only ready arm of the select in emit() and forces
-	// emit() to return false, which is exactly the path where the bug
-	// silently dropped the terminal chunk.
+	// Drain one chunk to confirm the producer is running.
 	select {
 	case c, ok := <-ch:
 		require.True(t, ok, "expected at least one chunk before cancellation")
@@ -578,7 +618,17 @@ func TestStream_MidStreamCancel_EmitsTerminalErr(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("did not receive first content chunk in time")
 	}
-	time.Sleep(30 * time.Millisecond)
+
+	// The gatedBody delivers gateAt=16 chunks then blocks. The channel
+	// buffer is cap=8 and we only consumed 1 chunk, so the producer has
+	// 8 slots in the buffer and will block on send #10. At that point
+	// emit()'s select has two arms: ch<-chunk (blocked) and ctx.Done().
+	// Cancelling here guarantees ctx.Done() wins the race.
+	//
+	// We wait for the buffer to fill (len(ch)==8) before cancelling, which
+	// proves the producer reached the blocked-send state.
+	require.Eventually(t, func() bool { return len(ch) == 8 }, time.Second, time.Millisecond,
+		"channel buffer did not fill within 1s")
 	cancel()
 
 	// Drain steadily so emitTerminal has buffer space to land the terminal
