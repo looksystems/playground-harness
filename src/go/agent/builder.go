@@ -138,7 +138,7 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 		a.Use(mw)
 	}
 	for _, hb := range b.hooks {
-		a.Hooks.On(hb.event, hb.handler)
+		a.Hub.On(hb.event, hb.handler)
 	}
 	return a, nil
 }

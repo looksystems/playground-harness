@@ -16,7 +16,7 @@ import (
 // TestOnEmitFiresHandlerWithArgs verifies that On + Emit invokes the handler
 // with the correct context and arguments.
 func TestOnEmitFiresHandlerWithArgs(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var gotCtx context.Context
@@ -44,7 +44,7 @@ func TestOnEmitFiresHandlerWithArgs(t *testing.T) {
 
 // TestMultipleHandlersAllFire ensures all registered handlers for an event are invoked.
 func TestMultipleHandlersAllFire(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var mu sync.Mutex
@@ -71,7 +71,7 @@ func TestMultipleHandlersAllFire(t *testing.T) {
 // TestHandlersForOtherEventsDoNotFire verifies that handlers registered for a
 // different event are not invoked.
 func TestHandlersForOtherEventsDoNotFire(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var fired bool
@@ -88,7 +88,7 @@ func TestHandlersForOtherEventsDoNotFire(t *testing.T) {
 // TestOffRemovesHandlers verifies that Off prevents previously registered
 // handlers from being called.
 func TestOffRemovesHandlers(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var fired bool
@@ -107,7 +107,7 @@ func TestOffRemovesHandlers(t *testing.T) {
 // TestHandlersReturnsDefensiveCopy ensures Handlers returns a copy, not the
 // internal slice.
 func TestHandlersReturnsDefensiveCopy(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	r.On(hooks.RunStart, func(_ context.Context, _ ...any) {})
 
 	h1 := r.Handlers(hooks.RunStart)
@@ -126,7 +126,7 @@ func TestHandlersReturnsDefensiveCopy(t *testing.T) {
 // TestEmitRecoversPanicAndStillInvokesOthers verifies that a panicking handler
 // does not prevent other handlers from running and that Emit still returns nil.
 func TestEmitRecoversPanicAndStillInvokesOthers(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var counter int32
@@ -146,7 +146,7 @@ func TestEmitRecoversPanicAndStillInvokesOthers(t *testing.T) {
 // TestEmitReturnsCtxErrWhenPreCancelled checks that Emit returns ctx.Err()
 // immediately when the context is already cancelled, without invoking handlers.
 func TestEmitReturnsCtxErrWhenPreCancelled(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 
 	var fired bool
 	r.On(hooks.LLMRequest, func(_ context.Context, _ ...any) {
@@ -163,7 +163,7 @@ func TestEmitReturnsCtxErrWhenPreCancelled(t *testing.T) {
 
 // TestEmitAsyncReturnsImmediately checks that EmitAsync is fire-and-forget.
 func TestEmitAsyncReturnsImmediately(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	done := make(chan struct{})
@@ -190,7 +190,7 @@ func TestEmitAsyncReturnsImmediately(t *testing.T) {
 // TestConcurrentOnEmit is a race-detector test: concurrent On and Emit must
 // not cause data races.
 func TestConcurrentOnEmit(t *testing.T) {
-	r := hooks.New()
+	r := hooks.NewHub()
 	ctx := context.Background()
 
 	var wg sync.WaitGroup

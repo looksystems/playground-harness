@@ -28,12 +28,17 @@ const (
 
 // Agent is the composed harness entry point.
 //
-// It embeds the two subsystems whose unqualified type names are distinct —
-// *tools.Registry and *middleware.Chain — so their methods are promoted onto
-// *Agent. The hooks registry shares its unqualified type name with the tools
-// registry (both are named "Registry"), so it is stored as a named Hooks
-// field, and a small set of forwarder methods (On, Emit, EmitAsync, Off,
-// Handlers) expose its API on *Agent.
+// It embeds the three subsystems anonymously — *hooks.Hub, *tools.Registry
+// and *middleware.Chain — so their methods are promoted onto *Agent. The
+// unqualified subsystem type names (Hub, Registry, Chain) are deliberately
+// distinct so the embeddings do not collide (see ADR 0031 Consequences).
+//
+// Chain .On/.Register/.Use via the Builder for multi-subsystem fluent
+// configuration. After Build, each subsystem's methods are available on the
+// Agent but return the subsystem type (not *Agent): e.g. a.On(...) returns
+// *hooks.Hub, a.Register(...) returns *tools.Registry. This is deliberate —
+// users who want the fluent agent.On(...).Use(...).Register(...) shape should
+// keep chaining on the Builder before calling Build.
 //
 // A single Agent may be shared across concurrent Run invocations — all
 // subsystems are concurrent-safe and Run keeps no shared per-run state on the
@@ -60,10 +65,7 @@ type Agent struct {
 	// Stream selects between client.Stream and client.Complete.
 	Stream bool
 
-	// Hooks is the event registry. On/Emit/Off/Handlers/EmitAsync are
-	// forwarded from here via methods on *Agent.
-	Hooks *hooks.Registry
-
+	*hooks.Hub
 	*tools.Registry
 	*middleware.Chain
 
@@ -79,44 +81,11 @@ func NewAgent(model string, client llm.Client) *Agent {
 		MaxTurns:   defaultMaxTurns,
 		MaxRetries: defaultMaxRetries,
 		Stream:     defaultStream,
-		Hooks:      hooks.New(),
+		Hub:        hooks.NewHub(),
 		Registry:   tools.New(),
 		Chain:      middleware.NewChain(),
 		client:     client,
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Hooks forwarders.  These exist because *hooks.Registry shares its
-// unqualified type-name with *tools.Registry and so cannot be embedded
-// alongside it.  Each method is a thin pass-through.
-// ---------------------------------------------------------------------------
-
-// On registers h as a handler for the given hook event and returns the
-// underlying hooks.Registry for chained calls.
-func (a *Agent) On(event hooks.Event, h hooks.Handler) *hooks.Registry {
-	return a.Hooks.On(event, h)
-}
-
-// Emit invokes every handler registered for event and waits for them to
-// complete. It honours ctx cancellation.
-func (a *Agent) Emit(ctx context.Context, event hooks.Event, args ...any) error {
-	return a.Hooks.Emit(ctx, event, args...)
-}
-
-// EmitAsync dispatches event on a detached goroutine (fire-and-forget).
-func (a *Agent) EmitAsync(ctx context.Context, event hooks.Event, args ...any) {
-	a.Hooks.EmitAsync(ctx, event, args...)
-}
-
-// Off removes all handlers registered for event.
-func (a *Agent) Off(event hooks.Event) {
-	a.Hooks.Off(event)
-}
-
-// Handlers returns a defensive copy of the handlers registered for event.
-func (a *Agent) Handlers(event hooks.Event) []hooks.Handler {
-	return a.Hooks.Handlers(event)
 }
 
 // ---------------------------------------------------------------------------

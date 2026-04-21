@@ -140,7 +140,7 @@ func (f *fakeClient) Stream(ctx context.Context, req llm.Request) (<-chan llm.Ch
 
 func TestNewAgent_initialisesSubsystems(t *testing.T) {
 	a := NewAgent("m", newFakeClient())
-	require.NotNil(t, a.Hooks, "hooks registry must be initialised")
+	require.NotNil(t, a.Hub, "hooks hub must be initialised")
 	require.NotNil(t, a.Registry, "tools registry must be initialised")
 	require.NotNil(t, a.Chain, "middleware chain must be initialised")
 	require.Equal(t, defaultMaxTurns, a.MaxTurns)

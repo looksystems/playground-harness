@@ -14,24 +14,28 @@ import (
 // documents what arguments it provides.
 type Handler func(ctx context.Context, args ...any)
 
-// Registry is a thread-safe event-handler registry. The zero value is not
-// usable; create one with New.
-type Registry struct {
+// Hub is a thread-safe event-handler registry. The zero value is not
+// usable; create one with NewHub.
+//
+// The type is named Hub rather than Registry so it has a distinct
+// unqualified name from tools.Registry — which lets subsystems compose via
+// anonymous struct embedding without collisions (see ADR 0031).
+type Hub struct {
 	mu       sync.RWMutex
 	handlers map[Event][]Handler
 }
 
-// New returns an initialised, ready-to-use Registry.
-func New() *Registry {
-	return &Registry{
+// NewHub returns an initialised, ready-to-use Hub.
+func NewHub() *Hub {
+	return &Hub{
 		handlers: make(map[Event][]Handler),
 	}
 }
 
-// On appends h to the list of handlers for event and returns the registry for
+// On appends h to the list of handlers for event and returns the hub for
 // chaining. It is safe to call On concurrently with other On, Off, or Emit
 // calls.
-func (r *Registry) On(event Event, h Handler) *Registry {
+func (r *Hub) On(event Event, h Handler) *Hub {
 	r.mu.Lock()
 	r.handlers[event] = append(r.handlers[event], h)
 	r.mu.Unlock()
@@ -39,15 +43,15 @@ func (r *Registry) On(event Event, h Handler) *Registry {
 }
 
 // Off removes all handlers for event. It is safe to call concurrently.
-func (r *Registry) Off(event Event) {
+func (r *Hub) Off(event Event) {
 	r.mu.Lock()
 	delete(r.handlers, event)
 	r.mu.Unlock()
 }
 
 // Handlers returns a defensive copy of the handlers registered for event.
-// Mutating the returned slice does not affect the registry.
-func (r *Registry) Handlers(event Event) []Handler {
+// Mutating the returned slice does not affect the hub.
+func (r *Hub) Handlers(event Event) []Handler {
 	r.mu.RLock()
 	src := r.handlers[event]
 	out := make([]Handler, len(src))
@@ -65,7 +69,7 @@ func (r *Registry) Handlers(event Event) []Handler {
 // Panics inside individual handlers are recovered independently; a recovered
 // panic is logged via log.Printf and does not prevent other handlers from
 // running. Emit itself always returns nil unless the context was pre-cancelled.
-func (r *Registry) Emit(ctx context.Context, event Event, args ...any) error {
+func (r *Hub) Emit(ctx context.Context, event Event, args ...any) error {
 	// Fast-path: honour a pre-cancelled context before touching the handlers.
 	select {
 	case <-ctx.Done():
@@ -101,7 +105,7 @@ func (r *Registry) Emit(ctx context.Context, event Event, args ...any) error {
 // EmitAsync dispatches Emit on a separate goroutine via util.GoSafe and
 // returns immediately (fire-and-forget). This mirrors the Python
 // emit_fire_and_forget helper.
-func (r *Registry) EmitAsync(ctx context.Context, event Event, args ...any) {
+func (r *Hub) EmitAsync(ctx context.Context, event Event, args ...any) {
 	util.GoSafe(func() {
 		_ = r.Emit(ctx, event, args...)
 	})

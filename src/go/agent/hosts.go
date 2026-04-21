@@ -11,9 +11,9 @@ import (
 // HooksHost is the capability a component needs from an Agent (or any other
 // host) to wire hook handlers and emit events.
 //
-// *Agent satisfies this interface via the embedded *hooks.Registry.
+// *Agent satisfies this interface via the embedded *hooks.Hub.
 type HooksHost interface {
-	On(hooks.Event, hooks.Handler) *hooks.Registry
+	On(hooks.Event, hooks.Handler) *hooks.Hub
 	Emit(context.Context, hooks.Event, ...any) error
 }
 
