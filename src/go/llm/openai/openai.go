@@ -205,6 +205,11 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Chunk,
 
 			if delta.Content != "" {
 				if !emit(llm.Chunk{Content: delta.Content}) {
+					// emit returned false because ctx.Done() won the
+					// send race.  Deliver a terminal chunk carrying
+					// ctx.Err() so consumers always see a Done marker
+					// — emitTerminal itself tolerates a cancelled ctx.
+					emitTerminal(llm.Chunk{Done: true, Err: ctx.Err()})
 					return
 				}
 			}
@@ -235,6 +240,10 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Chunk,
 					ToolName:   entry.Name,
 					ToolArgs:   argsDelta,
 				}) {
+					// Same as above: surface ctx.Err() as the terminal
+					// chunk so mid-stream cancellation is not silently
+					// dropped.
+					emitTerminal(llm.Chunk{Done: true, Err: ctx.Err()})
 					return
 				}
 			}

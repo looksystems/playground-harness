@@ -523,6 +523,89 @@ func TestStream_ContextCancellation(t *testing.T) {
 	}
 }
 
+// TestStream_MidStreamCancel_EmitsTerminalErr is the regression test for the
+// earlier bug where a ctx cancellation that won the send-race in emit(...)
+// returned from the producer goroutine without ever delivering a Done chunk.
+// Consumers (notably agent.aggregateStream) relied on a terminal chunk to
+// distinguish ctx-cancel from a clean close; dropping it surfaced as a
+// silently-successful Run.
+//
+// To deterministically hit the bug we have to make ctx.Done() win the select
+// inside emit(). We do that by flooding the stream with more chunks than the
+// producer's internal buffer can hold, then cancelling without draining — so
+// the producer is blocked trying to send, and ctx.Done() is the only ready
+// arm of the select.
+func TestStream_MidStreamCancel_EmitsTerminalErr(t *testing.T) {
+	// Many small content chunks: with the provider buffer at cap=8 we can
+	// easily exceed it without the consumer reading.
+	var chunks []string
+	for i := 0; i < 64; i++ {
+		chunks = append(chunks, fmt.Sprintf(`{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":%q}}]}`, fmt.Sprintf("c%02d ", i)))
+	}
+	chunks = append(chunks, `{"id":"c","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// slowBody returns chunks instantly (zero delay) so the producer
+		// goroutine races ahead and fills the internal buffer while the
+		// consumer stays paused.
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       &slowBody{chunks: chunks, delay: 0, ctx: ctx},
+		}, nil
+	})
+
+	client := newTestClient(rt)
+	ch, err := client.Stream(ctx, llm.Request{
+		Model:    "m",
+		Messages: []middleware.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+
+	// Drain one chunk to confirm the producer is running, then wait long
+	// enough for the internal channel buffer to fill up and wedge the
+	// producer on a blocked send. Cancel while it's wedged — that makes
+	// ctx.Done() the only ready arm of the select in emit() and forces
+	// emit() to return false, which is exactly the path where the bug
+	// silently dropped the terminal chunk.
+	select {
+	case c, ok := <-ch:
+		require.True(t, ok, "expected at least one chunk before cancellation")
+		assert.NotEmpty(t, c.Content)
+	case <-time.After(time.Second):
+		t.Fatal("did not receive first content chunk in time")
+	}
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	// Drain steadily so emitTerminal has buffer space to land the terminal
+	// chunk. Keep the most-recent one and assert at end.
+	var last llm.Chunk
+	sawAny := false
+	deadline := time.After(2 * time.Second)
+drain:
+	for {
+		select {
+		case c, ok := <-ch:
+			if !ok {
+				break drain
+			}
+			sawAny = true
+			last = c
+		case <-deadline:
+			t.Fatal("channel did not close after ctx cancellation")
+		}
+	}
+
+	require.True(t, sawAny, "expected at least one chunk to be observed")
+	assert.True(t, last.Done, "final chunk must be Done=true after mid-stream cancel")
+	require.Error(t, last.Err, "final chunk must carry ctx.Err()")
+	assert.True(t, errors.Is(last.Err, context.Canceled), "final chunk Err should be context.Canceled, got %v", last.Err)
+}
+
 // sanity: make sure Stream respects the ctx error reporting path even if we
 // try to cancel before any bytes arrive.
 func TestStream_PreCancelledContext(t *testing.T) {
