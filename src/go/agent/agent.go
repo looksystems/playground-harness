@@ -16,6 +16,7 @@ import (
 	"agent-harness/go/hooks"
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
+	"agent-harness/go/shell"
 	"agent-harness/go/tools"
 )
 
@@ -69,12 +70,20 @@ type Agent struct {
 	*tools.Registry
 	*middleware.Chain
 
+	// Host is the shell subsystem. Nil when no shell driver was supplied.
+	// When non-nil, *Agent satisfies the ShellHost capability interface via
+	// the embedded Host's promoted Exec / RegisterCommand methods.
+	*shell.Host
+
 	client llm.Client
 }
 
 // NewAgent constructs an Agent with all subsystems eagerly initialised and
 // defaults taken from Python base_agent.py. Prefer Builder for idiomatic
 // construction.
+//
+// The shell subsystem is not installed: *Agent.Host is nil. Use
+// NewAgentWithShell (or Builder.Shell) to attach a shell driver.
 func NewAgent(model string, client llm.Client) *Agent {
 	return &Agent{
 		Model:      model,
@@ -86,6 +95,30 @@ func NewAgent(model string, client llm.Client) *Agent {
 		Chain:      middleware.NewChain(),
 		client:     client,
 	}
+}
+
+// NewAgentWithShell constructs an Agent with an attached shell subsystem.
+// When driver is nil the shell package's DefaultFactory is consulted; if
+// that cannot yield a driver either, Host.Driver stays nil and Exec will
+// return an error.
+//
+// The Host is wired to the Agent's hook hub so SHELL_* events surface
+// through the same registry that consumers observe via Agent.On.
+func NewAgentWithShell(model string, client llm.Client, driver shell.Driver) *Agent {
+	a := NewAgent(model, client)
+	host := shell.NewHost(driver)
+	host.SetHub(a.Hub)
+	a.Host = host
+	return a
+}
+
+// HasShell reports whether this Agent has an attached shell subsystem.
+// Use this as a runtime predicate before invoking ShellHost methods —
+// *Agent promotes shell.Host methods via embedding, so calling Exec /
+// RegisterCommand on an Agent without a shell will panic on nil pointer
+// dereference.
+func (a *Agent) HasShell() bool {
+	return a.Host != nil
 }
 
 // ---------------------------------------------------------------------------

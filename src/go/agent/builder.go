@@ -7,6 +7,7 @@ import (
 	"agent-harness/go/hooks"
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
+	"agent-harness/go/shell"
 	"agent-harness/go/tools"
 )
 
@@ -36,6 +37,16 @@ type Builder struct {
 	tools      []tools.Def
 	middleware []middleware.Middleware
 	hooks      []hookBinding
+
+	// shell subsystem
+	shellDriver  shell.Driver
+	shellDriverSet bool
+	shellCommands []shellCmdBinding
+}
+
+type shellCmdBinding struct {
+	name    string
+	handler shell.CmdHandler
 }
 
 type hookBinding struct {
@@ -109,6 +120,25 @@ func (b *Builder) On(e hooks.Event, h hooks.Handler) *Builder {
 	return b
 }
 
+// Shell attaches a shell driver to the resulting Agent. Pass nil to install
+// the default builtin driver via shell.DefaultFactory. Calling Shell at
+// least once triggers auto-registration of the `exec` tool on Build.
+func (b *Builder) Shell(driver shell.Driver) *Builder {
+	b.shellDriver = driver
+	b.shellDriverSet = true
+	return b
+}
+
+// Command registers a custom shell command on the resulting Agent. Implies
+// Shell(nil) if Shell was not called — the builtin driver is used.
+func (b *Builder) Command(name string, handler shell.CmdHandler) *Builder {
+	b.shellCommands = append(b.shellCommands, shellCmdBinding{name: name, handler: handler})
+	if !b.shellDriverSet {
+		b.shellDriverSet = true
+	}
+	return b
+}
+
 // Build assembles the Agent. It returns an error when required pieces are
 // missing: Client (non-nil) and Model (non-empty). It never panics.
 //
@@ -123,7 +153,12 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 		return nil, errors.New("agent.Builder: Client is required — call Builder.Client(c) before Build")
 	}
 
-	a := NewAgent(b.model, b.client)
+	var a *Agent
+	if b.shellDriverSet {
+		a = NewAgentWithShell(b.model, b.client, b.shellDriver)
+	} else {
+		a = NewAgent(b.model, b.client)
+	}
 	a.System = b.system
 	a.MaxTurns = b.maxTurns
 	a.MaxRetries = b.maxRetries
@@ -139,6 +174,15 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 	}
 	for _, hb := range b.hooks {
 		a.Hub.On(hb.event, hb.handler)
+	}
+
+	// Auto-register the `exec` tool if a shell is attached, then apply any
+	// custom commands supplied via Builder.Command(...).
+	if a.Host != nil {
+		a.Register(a.Host.ShellTool())
+		for _, cmd := range b.shellCommands {
+			a.Host.RegisterCommand(cmd.name, cmd.handler)
+		}
 	}
 	return a, nil
 }
