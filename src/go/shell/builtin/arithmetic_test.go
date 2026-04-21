@@ -313,3 +313,25 @@ func TestTokenizeArith(t *testing.T) {
 	got = tokenizeArith("a + b")
 	require.Equal(t, []string{"+"}, got)
 }
+
+func TestEvalArithmetic_ShiftNegativeRHS(t *testing.T) {
+	s := newArithState(nil)
+	// Negative shift counts must return a clear error rather than
+	// wrapping to an enormous uint64 shift.
+	_, err := EvalArithmetic("1 << -1", s)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative shift count")
+
+	_, err = EvalArithmetic("8 >> -2", s)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative shift count")
+
+	// Zero and positive shifts still work.
+	got, err := EvalArithmetic("1 << 0", s)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), got)
+
+	got, err = EvalArithmetic("1 << 4", s)
+	require.NoError(t, err)
+	require.Equal(t, int64(16), got)
+}

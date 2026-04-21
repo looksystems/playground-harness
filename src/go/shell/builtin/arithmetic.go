@@ -376,6 +376,9 @@ func (p *arithParser) parseShift() (int64, error) {
 		if err != nil {
 			return 0, err
 		}
+		if right < 0 {
+			return 0, fmt.Errorf("negative shift count")
+		}
 		if op == "<<" {
 			val <<= uint64(right)
 		} else {
