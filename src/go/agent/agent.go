@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"sort"
 
+	"agent-harness/go/events"
 	"agent-harness/go/hooks"
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
@@ -75,6 +76,12 @@ type Agent struct {
 	// the embedded Host's promoted Exec / RegisterCommand methods.
 	*shell.Host
 
+	// Events is the events subsystem (registry + bus + parser). Always
+	// non-nil — constructed by NewAgent — so callers can Subscribe to the
+	// bus without first configuring any event types. Matches the
+	// always-on semantics of EmitsEvents in Python's StandardAgent.
+	Events *events.Host
+
 	client llm.Client
 }
 
@@ -93,6 +100,7 @@ func NewAgent(model string, client llm.Client) *Agent {
 		Hub:        hooks.NewHub(),
 		Registry:   tools.New(),
 		Chain:      middleware.NewChain(),
+		Events:     events.NewHost(),
 		client:     client,
 	}
 }
@@ -128,6 +136,21 @@ func NewAgentWithShell(model string, client llm.Client, driver shell.Driver) *Ag
 // dereference.
 func (a *Agent) HasShell() bool {
 	return a.Host != nil
+}
+
+// RegisterEvent registers an event type on the Agent's events subsystem.
+// It is a thin accessor on top of Agent.Events.Register — kept as a
+// distinct method name so it does not collide with the embedded
+// tools.Registry.Register(tools.Def). Returns the underlying events.Host
+// for fluent chaining (matching Python's EmitsEvents.register_event).
+func (a *Agent) RegisterEvent(t events.EventType) *events.Host {
+	return a.Events.Register(t)
+}
+
+// EventBus returns the Agent's event bus. Distinct method name from the
+// embedded shell.Host field to avoid ambiguity.
+func (a *Agent) EventBus() *events.MessageBus {
+	return a.Events.Bus()
 }
 
 // ---------------------------------------------------------------------------
@@ -368,13 +391,25 @@ func (a *Agent) executeTool(ctx context.Context, name string, args []byte) (stri
 
 // callLLM dispatches a single LLM call via the embedded client, honouring the
 // Stream flag and delegating streaming aggregation to aggregateStream.
+//
+// When streaming is on AND the Events host has at least one active event
+// type, content tokens are routed through the events parser so `---event
+// ... ---` blocks are lifted out of the assistant text and published to
+// the bus. Tool-call chunks bypass the parser and feed the tool-call
+// accumulator directly — events are a text-content affordance only.
+// When no event types are active, we fall back to the plain aggregator
+// so the behaviour is bit-for-bit identical to pre-events.
 func (a *Agent) callLLM(ctx context.Context, req llm.Request) (middleware.Message, error) {
 	if a.Stream {
 		ch, err := a.client.Stream(ctx, req)
 		if err != nil {
 			return middleware.Message{}, err
 		}
-		return aggregateStream(ctx, ch)
+		active := a.Events.ResolveActive(nil)
+		if len(active) == 0 {
+			return aggregateStream(ctx, ch)
+		}
+		return pipeStreamThroughParser(ctx, ch, a.Events.Parser(), a.Events.Bus())
 	}
 	resp, err := a.client.Complete(ctx, req)
 	if err != nil {
@@ -457,6 +492,142 @@ func aggregateStream(ctx context.Context, ch <-chan llm.Chunk) (middleware.Messa
 			}
 		}
 	}
+}
+
+// pipeStreamThroughParser drains ch while routing content deltas through the
+// events parser and feeding ParsedEvents to the bus. Tool-call chunks bypass
+// the parser and feed the tool-call accumulator directly — events are a
+// text-content affordance only.
+//
+// The assembled assistant message uses the parser's *cleaned* text (event
+// blocks elided) as Content, preserving Python's behaviour where the
+// assistant's textual reply does not include the literal event-block bytes.
+//
+// Contract:
+//   - The producer of ch owns it and closes it exactly once.
+//   - pipeStreamThroughParser owns the tokens channel feeding the parser,
+//     closes it when ch is drained (or ctx cancels), and waits for the
+//     parser goroutine to finish before returning.
+//   - Events are published to the bus in a goroutine per event so Run
+//     does not block on slow subscribers (matches Python fire-and-forget).
+//   - Per-event Stream channels are drained in their own goroutine to
+//     avoid blocking the parser.
+func pipeStreamThroughParser(
+	ctx context.Context,
+	ch <-chan llm.Chunk,
+	parser *events.Parser,
+	bus *events.MessageBus,
+) (middleware.Message, error) {
+	// Tokens channel: content-only; closed when the chunk source ends.
+	tokens := make(chan string)
+
+	// Spin the parser on a background goroutine. cleanText and parsedEvents
+	// are closed by parser.run when tokens closes (or ctx cancels).
+	parserCtx, parserCancel := context.WithCancel(ctx)
+	defer parserCancel()
+	cleanText, parsedEvents := parser.Wrap(parserCtx, tokens)
+
+	// Reader goroutine: drain cleanText into a content buffer.
+	var contentBuf []byte
+	contentDone := make(chan struct{})
+	go func() {
+		defer close(contentDone)
+		for s := range cleanText {
+			contentBuf = append(contentBuf, s...)
+		}
+	}()
+
+	// Reader goroutine: drain parsedEvents → bus. Drains per-event Stream
+	// channels on a sub-goroutine so the event loop does not block.
+	eventsDone := make(chan struct{})
+	go func() {
+		defer close(eventsDone)
+		for ev := range parsedEvents {
+			// Fire-and-forget publish so Run is not blocked by slow
+			// subscribers (matches Python EmitsEvents semantics).
+			ev := ev
+			go func() { _ = bus.Publish(ctx, ev) }()
+
+			if ev.Stream != nil {
+				// Somebody must drain the stream or the parser blocks.
+				// We take ownership of draining here; subscribers that
+				// want the stream should read ev.Stream synchronously
+				// from their handler before it is consumed. In the
+				// always-publish-to-bus path we simply drain.
+				go func(c <-chan string) {
+					for range c {
+					}
+				}(ev.Stream)
+			}
+		}
+	}()
+
+	// Tool-call accumulator (shared with aggregateStream's shape).
+	accums := map[string]*streamToolAccum{}
+	var nextOrder int
+
+	// drainLoop pulls Chunks from ch, routes content to tokens and tool
+	// deltas to accums. It closes tokens when ch ends or Done arrives, or
+	// on ctx cancellation.
+	var inFlightErr error
+	func() {
+		defer close(tokens)
+		for {
+			select {
+			case <-ctx.Done():
+				inFlightErr = ctx.Err()
+				return
+			case chunk, ok := <-ch:
+				if !ok {
+					if err := ctx.Err(); err != nil {
+						inFlightErr = err
+					}
+					return
+				}
+				if chunk.Err != nil {
+					inFlightErr = chunk.Err
+					return
+				}
+				if chunk.Done {
+					return
+				}
+
+				if chunk.Content != "" {
+					select {
+					case tokens <- chunk.Content:
+					case <-ctx.Done():
+						inFlightErr = ctx.Err()
+						return
+					}
+				}
+
+				if chunk.ToolCallID != "" {
+					entry, exists := accums[chunk.ToolCallID]
+					if !exists {
+						entry = &streamToolAccum{id: chunk.ToolCallID, first: nextOrder}
+						nextOrder++
+						accums[chunk.ToolCallID] = entry
+					}
+					if chunk.ToolName != "" {
+						entry.name = chunk.ToolName
+					}
+					if chunk.ToolArgs != "" {
+						entry.args = append(entry.args, chunk.ToolArgs...)
+					}
+				}
+			}
+		}
+	}()
+
+	// Wait for the parser + readers to finish flushing.
+	<-contentDone
+	<-eventsDone
+
+	if inFlightErr != nil {
+		return middleware.Message{}, inFlightErr
+	}
+
+	return finaliseStream(contentBuf, accums), nil
 }
 
 // finaliseStream converts the accumulated content and tool-call map into a

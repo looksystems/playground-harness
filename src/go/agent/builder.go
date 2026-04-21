@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"agent-harness/go/events"
 	"agent-harness/go/hooks"
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
@@ -42,6 +43,10 @@ type Builder struct {
 	shellDriver  shell.Driver
 	shellDriverSet bool
 	shellCommands []shellCmdBinding
+
+	// events subsystem
+	eventTypes    []events.EventType
+	defaultEvents []string
 }
 
 type shellCmdBinding struct {
@@ -139,6 +144,29 @@ func (b *Builder) Command(name string, handler shell.CmdHandler) *Builder {
 	return b
 }
 
+// Event registers a single event type on the resulting Agent's events
+// subsystem. Registering at least one event triggers the automatic
+// prompt-injection middleware at Build time, matching Python's
+// SkillPromptMiddleware pattern.
+func (b *Builder) Event(t events.EventType) *Builder {
+	b.eventTypes = append(b.eventTypes, t)
+	return b
+}
+
+// Events registers several event types at once.
+func (b *Builder) Events(ts ...events.EventType) *Builder {
+	b.eventTypes = append(b.eventTypes, ts...)
+	return b
+}
+
+// DefaultEvents sets the names of event types activated per run when
+// no explicit list is provided. Names not matching any registered type
+// are silently skipped at resolve time (matches Python's default_events).
+func (b *Builder) DefaultEvents(names ...string) *Builder {
+	b.defaultEvents = append([]string(nil), names...)
+	return b
+}
+
 // Build assembles the Agent. It returns an error when required pieces are
 // missing: Client (non-nil) and Model (non-empty). It never panics.
 //
@@ -183,6 +211,36 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 		for _, cmd := range b.shellCommands {
 			a.Host.RegisterCommand(cmd.name, cmd.handler)
 		}
+	}
+
+	// Events subsystem: register event types, wire defaults, install
+	// prompt-injection middleware if any are registered. Ported from
+	// Python's SkillPromptMiddleware pattern — the divergence from
+	// Python here is that Go auto-installs the prompt, closing the
+	// "parser is not wired to bus" TODO by default.
+	if len(b.eventTypes) > 0 {
+		for _, et := range b.eventTypes {
+			a.Events.Register(et)
+		}
+		// If user did not call DefaultEvents, default to all
+		// registered names (matches the active-skills semantics of
+		// SkillPromptMiddleware). If they did, honour their list
+		// verbatim — non-registered names are skipped at resolve.
+		if len(b.defaultEvents) == 0 {
+			names := make([]string, 0, len(b.eventTypes))
+			for _, et := range b.eventTypes {
+				names = append(names, et.Name)
+			}
+			a.Events.SetDefaults(names...)
+		} else {
+			a.Events.SetDefaults(b.defaultEvents...)
+		}
+		a.Use(&eventPromptMiddleware{host: a.Events})
+	} else if len(b.defaultEvents) > 0 {
+		// Defaults set without any registered types — honour them
+		// (ResolveActive will skip missing names). No middleware,
+		// because there is nothing to prompt about.
+		a.Events.SetDefaults(b.defaultEvents...)
 	}
 	return a, nil
 }

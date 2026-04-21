@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"agent-harness/go/events"
 	"agent-harness/go/hooks"
 	"agent-harness/go/middleware"
 	"agent-harness/go/shell"
@@ -48,6 +49,20 @@ type ShellHost interface {
 	RegisterCommand(name string, handler shell.CmdHandler)
 }
 
+// EventsHost is the capability a component needs from an Agent to register
+// structured event types and observe the event bus. It intentionally
+// exposes just the minimum surface (register an event type; obtain the
+// bus) because skills and middleware should not directly drive the
+// parser — that is Agent.Run's job.
+//
+// *Agent satisfies this interface via the RegisterEvent and EventBus
+// accessor methods, which dispatch through the always-on Agent.Events
+// field.
+type EventsHost interface {
+	RegisterEvent(events.EventType) *events.Host
+	EventBus() *events.MessageBus
+}
+
 // compile-time assertions — *Agent satisfies each capability interface.
 // ShellHost is also included because *shell.Host's method set is promoted
 // whether or not the embedded pointer is nil — the assertion is a
@@ -59,4 +74,5 @@ var (
 	_ ToolsHost      = (*Agent)(nil)
 	_ MiddlewareHost = (*Agent)(nil)
 	_ ShellHost      = (*Agent)(nil)
+	_ EventsHost     = (*Agent)(nil)
 )
