@@ -163,15 +163,24 @@ func TestHost_Exec_NoShellCwdWhenCwdUnchanged(t *testing.T) {
 	hub := hooks.NewHub()
 	h.SetHub(hub)
 
+	// Spy on BOTH the event we expect NOT to fire (ShellCwd) and a
+	// sentinel event we know WILL fire (ShellCall). When the sentinel
+	// arrives we know the hub has finished processing the Exec; at
+	// that point the target event has either fired or been correctly
+	// suppressed — no sleep needed.
 	cwdSpy := &eventSpy{}
+	sentinelSpy := &eventSpy{}
 	hub.On(hooks.ShellCwd, cwdSpy.handler())
+	hub.On(hooks.ShellCall, sentinelSpy.handler())
 
 	_, err := h.Exec(context.Background(), "echo stay")
 	require.NoError(t, err)
 
-	// Give any fire-and-forget handlers a chance to run; assert none did.
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int64(0), cwdSpy.count())
+	// Wait deterministically for the sentinel: ShellCall is always
+	// emitted by Host.Exec, so its arrival proves the hub drained the
+	// events for THIS Exec.
+	waitForCount(t, sentinelSpy.count, 1)
+	assert.Equal(t, int64(0), cwdSpy.count(), "ShellCwd must not fire when CWD is unchanged")
 }
 
 func TestHost_Exec_NilHub_DoesNotPanic(t *testing.T) {
@@ -364,9 +373,11 @@ func TestHost_SetHub_ReplacesHubLive(t *testing.T) {
 	h.SetHub(hub2)
 	_, err = h.Exec(context.Background(), "echo two")
 	require.NoError(t, err)
+	// waitForCount proves the second hub saw the Exec. At that point
+	// the first hub has either seen the event or been correctly
+	// skipped — using the sentinel-event pattern, hub2 firing is our
+	// deterministic signal that Exec is fully drained.
 	waitForCount(t, fired2.Load, 1)
-
-	// The first hub should still only have one firing.
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int64(1), fired1.Load())
+	assert.Equal(t, int64(1), fired1.Load(),
+		"first hub must not receive events after SetHub replaced it")
 }
