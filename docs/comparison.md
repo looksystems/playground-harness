@@ -18,7 +18,7 @@ The Python, TypeScript, PHP, and Go implementations of the agent harness share t
 | **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` | `interface` + narrow capability interfaces (type-asserted at mount) |
 | **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` | Static types (enforced at compile time); no generics needed for current surface |
 | **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit | stdlib `testing` + `testify/require` |
-| **Test Count** | 360 | 364 | 328 | — |
+| **Test Count** | 360 | 364 | 328 | 842 |
 | **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` | `shell.Driver` (interface) + `builtin.BuiltinShellDriver` |
 | **Bashkit Driver** | `BashkitPythonDriver` (PyO3 in-process) | `BashkitCLIDriver` (CLI subprocess) | `BashkitCLIDriver` (CLI subprocess) | `bashkit.Driver` (CLI subprocess) |
 | **Bashkit Resolver** | `BashkitDriver.resolve()` → `import bashkit` | `BashkitDriver.resolve()` → `which bashkit` | `BashkitDriver::resolve()` → `which bashkit` | `bashkit.NewDriver()` → `which bashkit` at Exec time |
