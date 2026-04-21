@@ -3,6 +3,7 @@ package tools_test
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,4 +206,52 @@ func TestSchema_PanicsOnInterface(t *testing.T) {
 	assert.Panics(t, func() {
 		tools.Schema(reflect.TypeOf(BadArgsIface{}))
 	})
+}
+
+// ---- cyclic types must not stack-overflow --------------------------------
+
+// cyclicNode reaches itself through a slice field. A naive recursive Schema
+// would descend forever; the generator must detect the cycle and terminate
+// with a generic object schema at the recursion point.
+type cyclicNode struct {
+	Label    string       `json:"label"`
+	Children []cyclicNode `json:"children,omitempty"`
+}
+
+func TestSchema_CyclicStruct_DoesNotOverflow(t *testing.T) {
+	// Wrap in a done channel so a genuine stack-overflow surfaces as a
+	// timeout rather than hanging the whole test binary.
+	done := make(chan map[string]any, 1)
+	go func() {
+		done <- tools.Schema(reflect.TypeOf(cyclicNode{}))
+	}()
+
+	select {
+	case s := <-done:
+		// Outer type should be a normal object with the expected property.
+		assert.Equal(t, "object", s["type"])
+		props, ok := s["properties"].(map[string]any)
+		require.True(t, ok)
+
+		// label at the top level is a string.
+		labelProp, ok := props["label"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "string", labelProp["type"])
+
+		// children is an array; items should be an object schema. The
+		// cycle is broken one level down: the nested node should be a
+		// generic object rather than a fully-expanded cyclicNode.
+		childrenProp, ok := props["children"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "array", childrenProp["type"])
+		items, ok := childrenProp["items"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "object", items["type"])
+		// The recursion-break form has no nested "properties" key — that
+		// is the signal the cycle guard kicked in.
+		_, hasProps := items["properties"]
+		assert.False(t, hasProps, "recursion-break schema must be a bare object, got nested properties %#v", items)
+	case <-time.After(2 * time.Second):
+		t.Fatal("tools.Schema did not terminate on cyclic type within 2s — cycle guard missing?")
+	}
 }

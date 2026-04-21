@@ -16,13 +16,32 @@ import (
 // Supported kinds: string, bool, int/int32/int64, float32/float64, slice of
 // supported, nested struct, map[string]any. Unsupported kinds (func, chan,
 // interface) panic with a descriptive message.
+//
+// Cyclic types (a struct that reaches itself through a field, directly or
+// transitively) are handled by returning a generic {"type":"object"} schema at
+// the point of recursion, so the generator terminates rather than overflowing
+// the stack.
 func Schema(t reflect.Type) map[string]any {
+	return schemaInternal(t, map[reflect.Type]bool{})
+}
+
+// schemaInternal is the recursive form that carries the "already on the stack"
+// set used for cycle detection.
+func schemaInternal(t reflect.Type, seen map[reflect.Type]bool) map[string]any {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
 		panic(fmt.Sprintf("tools.Schema: expected struct type, got %s", t.Kind()))
 	}
+
+	// Cycle guard: if we are already producing a schema for this type higher
+	// up the stack, break the recursion here by emitting a generic object.
+	if seen[t] {
+		return map[string]any{"type": "object"}
+	}
+	seen[t] = true
+	defer delete(seen, t)
 
 	props := make(map[string]any)
 	var required []string
@@ -52,7 +71,7 @@ func Schema(t reflect.Type) map[string]any {
 			}
 		}
 
-		prop := kindToSchema(field.Type)
+		prop := kindToSchema(field.Type, seen)
 
 		// Attach description if present
 		if desc, ok := field.Tag.Lookup("desc"); ok && desc != "" {
@@ -75,8 +94,10 @@ func Schema(t reflect.Type) map[string]any {
 	return schema
 }
 
-// kindToSchema converts a reflect.Type to a JSON-schema property object.
-func kindToSchema(t reflect.Type) map[string]any {
+// kindToSchema converts a reflect.Type to a JSON-schema property object. The
+// seen set is forwarded so nested structs (including those reached through
+// slices and pointers) participate in cycle detection.
+func kindToSchema(t reflect.Type, seen map[reflect.Type]bool) map[string]any {
 	// Dereference pointer
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -99,7 +120,7 @@ func kindToSchema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "number"}
 
 	case reflect.Slice:
-		items := kindToSchema(t.Elem())
+		items := kindToSchema(t.Elem(), seen)
 		return map[string]any{
 			"type":  "array",
 			"items": items,
@@ -110,7 +131,7 @@ func kindToSchema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "object"}
 
 	case reflect.Struct:
-		return Schema(t)
+		return schemaInternal(t, seen)
 
 	default:
 		panic(fmt.Sprintf("tools.Schema: unsupported field kind %s", t.Kind()))
