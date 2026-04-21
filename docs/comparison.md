@@ -1,33 +1,33 @@
 # Cross-Language Comparison
 
-The Python, TypeScript, and PHP implementations of the agent harness share the same conceptual architecture — mixins for composition, hooks for extensibility, middleware for pipeline processing, streaming for LLM output, and YAML-based event parsing. They differ in language-specific idioms and runtime constraints. For the shared architecture itself, see [architecture.md](architecture.md).
+The Python, TypeScript, PHP, and Go implementations of the agent harness share the same conceptual architecture — mixins/embedding for composition, hooks for extensibility, middleware for pipeline processing, streaming for LLM output, and YAML-based event parsing. They differ in language-specific idioms and runtime constraints. For the shared architecture itself, see [architecture.md](architecture.md).
 
 ## Comparison Table
 
-| Aspect | Python | TypeScript | PHP |
-|--------|--------|------------|-----|
-| **Trait/Mixin Mechanism** | Multiple inheritance mixins | Function-based mixins (`HasX<TBase>(Base)`) | Native `trait` keyword |
-| **Mixin Init Strategy** | Lazy init via `hasattr` + `__init_has_X__()` | Inline field initialization in anonymous class | PHP trait properties initialize on first use |
-| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasSkills): pass` | `const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasSkills; }` |
-| **Async Model** | `async`/`await` throughout, `asyncio` | `async`/`await`, Promises | Synchronous (no async runtime) |
-| **LLM Client** | litellm (multi-provider) | OpenAI SDK | Guzzle HTTP (raw API calls) |
-| **YAML Parsing** | PyYAML (`yaml.safe_load`) | `yaml` npm package (`YAML.parse`) | Custom `parseSimpleYaml()` (zero dependencies) |
-| **Hook Dispatch** | Concurrent (`asyncio.gather` + `return_exceptions=True`) | Concurrent (`Promise.allSettled`) | Sequential (synchronous `foreach`) |
-| **Streaming Primitive** | `asyncio.Queue` → `AsyncIterator` | `createChannel()` → `AsyncIterable` | `Generator` (pull-based) |
-| **Tool Schema** | Auto-generated from type hints via `_build_param_schema()` | Explicit via `ToolDef.parameters` (manual JSON schema) | Explicit via `ToolDef::make()` parameters array |
-| **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` |
-| **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` |
-| **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit |
-| **Test Count** | 360 | 364 | 328 |
-| **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` |
-| **Bashkit Driver** | `BashkitPythonDriver` (PyO3 in-process) | `BashkitCLIDriver` (CLI subprocess) | `BashkitCLIDriver` (CLI subprocess) |
-| **Bashkit Resolver** | `BashkitDriver.resolve()` → `import bashkit` | `BashkitDriver.resolve()` → `which bashkit` | `BashkitDriver::resolve()` → `which bashkit` |
-| **FS Driver** | `FilesystemDriver` (ABC) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` |
-| **Driver Factory** | `ShellDriverFactory` (class methods) | `ShellDriverFactory` (static methods) | `ShellDriverFactory` (static methods) |
-| **Driver Selection** | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `->driver()` |
-| **VFS Content Types** | `str \| bytes` | `string` only | `string` only |
-| **Lazy File Providers** | Synchronous callables | Async (returns `Promise<string>`) | Synchronous closures |
-| **Shell Registry** | Global singleton (module-level) | Global singleton (module-level) | Global singleton (static class) |
+| Aspect | Python | TypeScript | PHP | Go |
+|--------|--------|------------|-----|----|
+| **Trait/Mixin Mechanism** | Multiple inheritance mixins | Function-based mixins (`HasX<TBase>(Base)`) | Native `trait` keyword | Anonymous struct embedding |
+| **Mixin Init Strategy** | Lazy init via `hasattr` + `__init_has_X__()` | Inline field initialization in anonymous class | PHP trait properties initialize on first use | Eager init in `NewAgent`; no init collision possible |
+| **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasSkills): pass` | `const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasSkills; }` | `Agent` embeds `*hooks.Hub`, `*tools.Registry`, `*middleware.Chain`; named fields for `*shell.Host`, `*events.Host`, `*skills.Manager` |
+| **Async Model** | `async`/`await` throughout, `asyncio` | `async`/`await`, Promises | Synchronous (no async runtime) | Goroutines + channels; `context.Context` for cancellation |
+| **LLM Client** | litellm (multi-provider) | OpenAI SDK | Guzzle HTTP (raw API calls) | OpenAI + Anthropic in-tree; pluggable `llm.Client` interface |
+| **YAML Parsing** | PyYAML (`yaml.safe_load`) | `yaml` npm package (`YAML.parse`) | Custom `parseSimpleYaml()` (zero dependencies) | `gopkg.in/yaml.v3` |
+| **Hook Dispatch** | Concurrent (`asyncio.gather` + `return_exceptions=True`) | Concurrent (`Promise.allSettled`) | Sequential (synchronous `foreach`) | Concurrent (goroutines + `sync.WaitGroup`; panics recovered per handler) |
+| **Streaming Primitive** | `asyncio.Queue` → `AsyncIterator` | `createChannel()` → `AsyncIterable` | `Generator` (pull-based) | `<-chan llm.Chunk` (producer-owned, closed exactly once) |
+| **Tool Schema** | Auto-generated from type hints via `_build_param_schema()` | Explicit via `ToolDef.parameters` (manual JSON schema) | Explicit via `ToolDef::make()` parameters array | Auto-generated from struct tags via `tools.Schema()` at construction time |
+| **Interface/Protocol** | `Protocol` (runtime_checkable) | `interface` | `interface` | `interface` + narrow capability interfaces (type-asserted at mount) |
+| **Type System** | Type hints (optional, not enforced at runtime) | Static types (enforced at compile time) | Typed properties + `declare(strict_types=1)` | Static types (enforced at compile time); no generics needed for current surface |
+| **Test Framework** | pytest + pytest-asyncio | vitest | PHPUnit | stdlib `testing` + `testify/require` |
+| **Test Count** | 360 | 364 | 328 | — |
+| **Shell Driver** | `ShellDriver` (ABC) + `BuiltinShellDriver` | `ShellDriver` (interface) + `BuiltinShellDriver` | `ShellDriverInterface` + `BuiltinShellDriver` | `shell.Driver` (interface) + `builtin.BuiltinShellDriver` |
+| **Bashkit Driver** | `BashkitPythonDriver` (PyO3 in-process) | `BashkitCLIDriver` (CLI subprocess) | `BashkitCLIDriver` (CLI subprocess) | `bashkit.Driver` (CLI subprocess) |
+| **Bashkit Resolver** | `BashkitDriver.resolve()` → `import bashkit` | `BashkitDriver.resolve()` → `which bashkit` | `BashkitDriver::resolve()` → `which bashkit` | `bashkit.NewDriver()` → `which bashkit` at Exec time |
+| **FS Driver** | `FilesystemDriver` (ABC) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `FilesystemDriver` (interface) + `BuiltinFilesystemDriver` | `vfs.FilesystemDriver` (interface) + `vfs.InMemoryFS` |
+| **Driver Factory** | `ShellDriverFactory` (class methods) | `ShellDriverFactory` (static methods) | `ShellDriverFactory` (static methods) | `shell.DefaultFactory` (package-level var) |
+| **Driver Selection** | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `.driver()` | Global default + per-agent via builder `->driver()` | Per-agent via `agent.NewBuilder(...).Shell(driver)` |
+| **VFS Content Types** | `str \| bytes` | `string` only | `string` only | `string` or `[]byte` |
+| **Lazy File Providers** | Synchronous callables | Async (returns `Promise<string>`) | Synchronous closures | Synchronous functions |
+| **Shell Registry** | Global singleton (module-level) | Global singleton (module-level) | Global singleton (static class) | No global shell registry; drivers constructed explicitly |
 
 ## Notable Differences
 
@@ -92,3 +92,23 @@ The `on_not_found` callback (invoked when a command is not found) is a property 
 The `HasSkills` mixin is consistent across all three languages. Skills are mounted via `mount(skill)` and unmounted via `unmount(name)`. Each skill bundles tools, instructions, middleware, hooks, and lifecycle management into a single mountable unit. Dependencies are resolved transitively via topological sort. Four `skill_*` hook events (mount, unmount, setup, teardown) are emitted when `HasHooks` is composed.
 
 The `SkillPromptMiddleware` in all three languages auto-injects mounted skill instructions into the system prompt, ensuring the LLM is aware of all active skill capabilities.
+
+### 9. Go: Struct Embedding and Capability Interfaces
+
+Go replaces class inheritance and function-based mixins with anonymous struct embedding. `*Agent` embeds `*hooks.Hub`, `*tools.Registry`, and `*middleware.Chain` so their methods are promoted directly onto the agent. The embedding approach requires type names to be deliberately distinct to avoid promotion collisions — this is why `Hub`, `Registry`, and `Chain` do not share a common prefix.
+
+Subsystems that would cause ambiguity (`*shell.Host`, `*events.Host`, `*skills.Manager`) are named fields rather than anonymous embeddings.
+
+Skills in Go use narrow capability interfaces (`skills.ToolsContributor`, `skills.Setuppable`, etc.) rather than a monolithic interface. The skill manager type-asserts each capability at mount time, giving the same composable opt-in behaviour as Python's duck-typed mixins without requiring a deep inheritance hierarchy.
+
+Setup and teardown are synchronous in Go (`return error`), unlike Python's `async def setup`. This is idiomatic for Go — synchronous code can still spin goroutines internally, and the `context.Context` passed to `Setup` provides cancellation support.
+
+`Dependencies()` returns `[]Skill` instances (live values) rather than type references, because Go cannot instantiate an arbitrary type by reflection without additional runtime support. Callers supply configured instances directly.
+
+### 10. Go: Concurrency Model
+
+Go is concurrent throughout but without an async/await syntax layer. The agent run loop, hook dispatch, and streaming all use goroutines and channels. `context.Context` propagates cancellation, so a cancelled context aborts the run loop, prevents new hook handlers from starting, and signals stream consumers.
+
+Hook dispatch spins one goroutine per registered handler and waits with `sync.WaitGroup` — equivalent to Python's `asyncio.gather` and TypeScript's `Promise.allSettled`. Panics inside handlers are recovered per-goroutine and logged, preventing one failing hook from blocking the others.
+
+The streaming channel contract — producer-owned, closed exactly once, terminal `Done` chunk — allows goroutines that produce and consume stream events to coordinate without shared mutable state. This is documented in ADR 0032.

@@ -3,7 +3,7 @@
 > [!WARNING]
 > This repository is for exploration and planning purposes only. It is not intended for production use. APIs, structure, and documentation may change without notice. Written entirely using Claude Code in a few hours, just to try out "what if".
 
-A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, and PHP with trait/mixin-based composition.
+A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, PHP, and Go with trait/mixin/embedding-based composition.
 
 Harness has two distinctive features. 
 
@@ -35,6 +35,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Python](docs/guides/python.md)
 - [TypeScript](docs/guides/typescript.md)
 - [PHP](docs/guides/php.md)
+- [Go](docs/guides/go.md)
 
 ### Shell Guides
 

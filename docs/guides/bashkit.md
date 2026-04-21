@@ -8,6 +8,7 @@ The integration differs by language:
 
 - **Python** — in-process via `bashkit` PyO3 package. Stateful, with custom command support via `ScriptedTool`.
 - **TypeScript / PHP** — subprocess via `bashkit -c`. Stateless one-shot execution.
+- **Go** — subprocess via `bashkit -c`. Stateless one-shot execution. VFS sync via preamble/epilogue.
 
 ### Why bashkit?
 
@@ -18,6 +19,8 @@ The integration differs by language:
 | **Dependencies** | None (pure language) | `bashkit` Python package or `bashkit` CLI binary |
 | **Sandboxing** | Basic (allowed commands list) | Resource limits (max commands, loop iterations, function depth) |
 | **Performance** | Interpreted | Native Rust |
+
+The builtin shell remains the default in Go — zero dependencies, no subprocess overhead. Switch to bashkit when you need POSIX compliance or a richer set of builtins.
 
 The builtin shell remains the default — zero dependencies, good enough for most agent workloads. Switch to bashkit when you need POSIX compliance, more builtins, or sandboxing controls.
 
@@ -114,6 +117,35 @@ $result = $agent->execCommand('echo hello | tr a-z A-Z');
 echo $result->stdout; // "HELLO\n"
 ```
 
+### Go
+
+```go
+import (
+    "context"
+    "fmt"
+    "agent-harness/go/agent"
+    "agent-harness/go/llm/openai"
+    "agent-harness/go/shell/bashkit"
+)
+
+// Construct the bashkit driver directly — no global registration step needed.
+driver := bashkit.NewDriver()
+
+a, err := agent.NewBuilder("gpt-4o-mini").
+    Client(openai.New(openai.WithAPIKey(key))).
+    Shell(driver).
+    Build(context.Background())
+
+result, err := a.Exec(context.Background(), "echo hello | tr a-z A-Z")
+fmt.Print(result.Stdout) // "HELLO\n"
+```
+
+The `bashkit` binary must be on `$PATH`. Install from source:
+
+```bash
+cargo install bashkit-cli
+```
+
 ---
 
 ## How It Works
@@ -127,6 +159,7 @@ When you say `driver("bashkit")`, the resolver checks for the appropriate runtim
 | Python | `import bashkit` succeeds | `BashkitPythonDriver` |
 | TypeScript | `which bashkit` succeeds | `BashkitCLIDriver` |
 | PHP | `which bashkit` succeeds | `BashkitCLIDriver` |
+| Go | `which bashkit` at Exec time | `bashkit.Driver` |
 
 ### Python: In-Process (PyO3)
 
@@ -137,9 +170,9 @@ The `BashkitPythonDriver` wraps the `bashkit` Python package, which is a Rust na
 - **Custom commands** — `register_command()` uses bashkit's `ScriptedTool` to register Python callbacks as bash builtins
 - **VFS sync** — preamble/epilogue pattern (same as TS/PHP, in-process transport)
 
-### TypeScript / PHP: CLI Subprocess
+### TypeScript / PHP / Go: CLI Subprocess
 
-The `BashkitCLIDriver` spawns `bashkit -c 'command'` for each `exec()` call. Each invocation creates a fresh bashkit instance.
+The `BashkitCLIDriver` (TypeScript/PHP) and `bashkit.Driver` (Go) each spawn `bashkit -c 'command'` for each `exec()` call. Each invocation creates a fresh bashkit instance.
 
 ### VFS Synchronization (All Languages)
 
@@ -216,6 +249,13 @@ const agent = await StandardAgent.build("gpt-4").driver("bashkit").create();
 $agent = StandardAgent::build('gpt-4')->driver('bashkit')->create();
 ```
 
+```go
+// Go
+import "agent-harness/go/shell/bashkit"
+driver := bashkit.NewDriver()
+a, err := agent.NewBuilder("gpt-4o-mini").Client(client).Shell(driver).Build(ctx)
+```
+
 ### Global Default
 
 Set bashkit as the default driver for all agents:
@@ -257,20 +297,20 @@ agent = await (
 
 ## Capabilities by Language
 
-| Capability | Python | TypeScript | PHP |
-|-----------|--------|------------|-----|
-| In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) |
-| Shell state persistence between exec() | Yes | No | No |
-| Custom command callbacks | Yes (ScriptedTool) | Yes (local interception) | Yes (local interception) |
-| VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
-| Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
+| Capability | Python | TypeScript | PHP | Go |
+|-----------|--------|------------|-----|----|
+| In-process execution | Yes (PyO3) | No (subprocess) | No (subprocess) | No (subprocess) |
+| Shell state persistence between exec() | Yes | No | No | No |
+| Custom command callbacks | Yes (ScriptedTool) | Yes (local interception) | Yes (local interception) | Yes (local interception) |
+| VFS sync | Preamble/epilogue (in-process) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) | Preamble/epilogue (per subprocess) |
+| Install | `pip install bashkit` | `cargo install bashkit-cli` | `cargo install bashkit-cli` | `cargo install bashkit-cli` |
 
 ---
 
 ## Limitations
 
-- **TypeScript/PHP shell state is stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls. VFS files do persist via preamble/epilogue sync.
-- **Custom commands differ by language.** Python has full shell integration via `ScriptedTool` (commands compose with pipes and redirects). TypeScript/PHP have local-only interception (first-word match dispatches to registered handler, skipping subprocess). TS/PHP custom commands don't compose with pipes or compound expressions.
+- **TypeScript/PHP/Go shell state is stateless.** Each `exec()` starts a fresh bashkit instance. Shell variables and functions don't persist between calls. VFS files do persist via preamble/epilogue sync.
+- **Custom commands differ by language.** Python has full shell integration via `ScriptedTool` (commands compose with pipes and redirects). TypeScript/PHP/Go have local-only interception (first-word match dispatches to registered handler, skipping subprocess). These custom commands don't compose with pipes or compound expressions.
 - **Synchronous only.** All drivers block on execution, matching the synchronous `ShellDriver` contract.
 
 ### Related Documents

@@ -22,6 +22,9 @@ npm install @grpc/grpc-js @grpc/proto-loader
 # PHP
 pecl install grpc
 composer require grpc/grpc google/protobuf
+
+# Go — gRPC is declared in go.mod and fetched automatically
+go get agent-harness/go@latest
 ```
 
 ## Setup
@@ -74,6 +77,15 @@ registerOpenShellDriver();
 ```php
 // PHP
 AgentHarness\OpenShellDriver::register();
+```
+
+```go
+// Go — no global registration; construct the driver directly
+import "agent-harness/go/shell/openshell"
+
+driver, err := openshell.NewDriver(
+    openshell.WithSSH("localhost", 2222, "sandbox"),
+)
 ```
 
 ### 3. Direct usage
@@ -226,6 +238,23 @@ $result = $driver->exec('echo hello');
 $driver->close();
 ```
 
+```go
+// Go — gRPC transport
+import (
+    "agent-harness/go/shell"
+    "agent-harness/go/shell/openshell"
+)
+
+driver, err := openshell.NewDriver(
+    openshell.WithGRPC("localhost:50051"),
+    openshell.WithPolicy(&shell.SecurityPolicy{
+        FilesystemAllow: []string{"/data"},
+    }),
+)
+result, err := driver.Exec(ctx, "echo hello")
+defer driver.Close()
+```
+
 ### Streaming exec
 
 When using gRPC transport, `execStream()` yields real-time events:
@@ -260,6 +289,21 @@ foreach ($driver->execStream('make build') as $event) {
         'stderr' => fwrite(STDERR, $event['data']),
         'exit' => printf("\nExit code: %d\n", $event['exitCode']),
     };
+}
+```
+
+```go
+// Go
+ch, err := driver.ExecStream(ctx, "make build")
+for event := range ch {
+    switch event.Kind {
+    case shell.StreamStdout:
+        fmt.Print(event.Data)
+    case shell.StreamStderr:
+        fmt.Fprint(os.Stderr, event.Data)
+    case shell.StreamExit:
+        fmt.Printf("\nExit code: %d\n", event.ExitCode)
+    }
 }
 ```
 
