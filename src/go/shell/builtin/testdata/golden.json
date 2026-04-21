@@ -1,0 +1,296 @@
+[
+  {
+    "name": "echo_simple",
+    "command": "echo hello world",
+    "expected_stdout": "hello world\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "pwd_default",
+    "command": "pwd",
+    "expected_stdout": "/\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "cat_hello_file",
+    "command": "cat /data/hello.txt",
+    "expected_stdout": "hello world\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "cat_nonexistent",
+    "command": "cat /nope",
+    "expected_stdout": "",
+    "expected_stderr": "file does not exist\n",
+    "expected_exit_code": 1
+  },
+  {
+    "name": "pipe_cat_sort",
+    "command": "cat /data/nums.txt | sort",
+    "expected_stdout": "1\n1\n2\n3\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "pipe_cat_sort_uniq",
+    "command": "cat /data/nums.txt | sort | uniq",
+    "expected_stdout": "1\n2\n3\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "redirect_stdout_echo",
+    "command": "echo test > /tmp/out.txt; cat /tmp/out.txt",
+    "expected_stdout": "test\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "redirect_append",
+    "command": "echo a > /tmp/a.txt; echo b >> /tmp/a.txt; cat /tmp/a.txt",
+    "expected_stdout": "a\nb\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "stdin_redirect",
+    "command": "cat < /data/hello.txt",
+    "expected_stdout": "hello world\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "wc_lines",
+    "command": "wc -l /data/nums.txt",
+    "expected_stdout": "4\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "head_n",
+    "command": "head -2 /data/nums.txt",
+    "expected_stdout": "3\n1\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "tail_n",
+    "command": "tail -2 /data/nums.txt",
+    "expected_stdout": "2\n1\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "grep_match",
+    "command": "grep hello /data/hello.txt",
+    "expected_stdout": "hello world\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "grep_no_match",
+    "command": "grep zzzzz /data/hello.txt",
+    "expected_stdout": "",
+    "expected_stderr": "",
+    "expected_exit_code": 1
+  },
+  {
+    "name": "grep_case_insensitive",
+    "command": "grep -i HELLO /data/hello.txt",
+    "expected_stdout": "hello world\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "tr_delete",
+    "command": "echo hello | tr -d l",
+    "expected_stdout": "heo\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "sed_substitute",
+    "command": "echo hello world | sed s/world/earth/",
+    "expected_stdout": "hello earth\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "cut_columns",
+    "command": "echo a:b:c | cut -d : -f 2",
+    "expected_stdout": "b\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "printf_basic",
+    "command": "printf '%s %s' hello world",
+    "expected_stdout": "hello world",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "printf_decimal",
+    "command": "printf '%d' 42",
+    "expected_stdout": "42",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "true_builtin",
+    "command": "true",
+    "expected_stdout": "",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "false_builtin",
+    "command": "false",
+    "expected_stdout": "",
+    "expected_stderr": "",
+    "expected_exit_code": 1
+  },
+  {
+    "name": "test_file_exists",
+    "command": "test -f /data/hello.txt",
+    "expected_stdout": "",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "test_file_missing",
+    "command": "test -f /data/nope",
+    "expected_stdout": "",
+    "expected_stderr": "",
+    "expected_exit_code": 1
+  },
+  {
+    "name": "if_then_true",
+    "command": "if true; then echo yes; fi",
+    "expected_stdout": "yes\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "if_else",
+    "command": "if false; then echo yes; else echo no; fi",
+    "expected_stdout": "no\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "for_loop",
+    "command": "for x in a b c; do echo $x; done",
+    "expected_stdout": "a\nb\nc\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "while_countdown",
+    "command": "X=3; while [ $X -gt 0 ]; do echo $X; X=$(($X - 1)); done",
+    "expected_stdout": "3\n2\n1\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "case_match_literal",
+    "command": "case hello in hello) echo matched;; esac",
+    "expected_stdout": "matched\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "case_wildcard",
+    "command": "case anything in *) echo default;; esac",
+    "expected_stdout": "default\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "command_substitution",
+    "command": "echo $(echo inner)",
+    "expected_stdout": "inner\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "arithmetic_add",
+    "command": "echo $((2 + 3))",
+    "expected_stdout": "5\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "arithmetic_parens",
+    "command": "echo $(((2 + 3) * 4))",
+    "expected_stdout": "20\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "param_expansion_default",
+    "command": "echo ${UNSET:-fallback}",
+    "expected_stdout": "fallback\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "variable_set_then_echo",
+    "command": "X=hello; echo $X",
+    "expected_stdout": "hello\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "and_operator_both_succeed",
+    "command": "true && echo ok",
+    "expected_stdout": "ok\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "or_operator_fallback",
+    "command": "false || echo fallback",
+    "expected_stdout": "fallback\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "semicolon_chain",
+    "command": "echo a; echo b",
+    "expected_stdout": "a\nb\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "stderr_dup_to_stdout",
+    "command": "errcmd 2>&1",
+    "expected_stdout": "out\nerr\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "redirect_both_streams",
+    "command": "errcmd &> /tmp/all.txt; cat /tmp/all.txt",
+    "expected_stdout": "out\nerr\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  },
+  {
+    "name": "command_not_found",
+    "command": "nonexistent_cmd_xyz",
+    "expected_stdout": "",
+    "expected_stderr": "nonexistent_cmd_xyz: command not found\n",
+    "expected_exit_code": 127
+  },
+  {
+    "name": "arithmetic_ternary",
+    "command": "echo $((1 ? 10 : 20))",
+    "expected_stdout": "10\n",
+    "expected_stderr": "",
+    "expected_exit_code": 0
+  }
+]
