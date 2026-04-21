@@ -48,12 +48,21 @@ func BuiltinGrep(ctx context.Context, env *ExecEnv, args []string, stdin string)
 		}
 	}
 
-	grepText := func(text, label string) []string {
+	// grepText returns (matches, err). When ctx is cancelled mid-scan
+	// it returns the matches collected so far alongside the cancel
+	// error; the caller turns that into exit 130 so callers can
+	// distinguish "nothing matched" from "scan was interrupted".
+	grepText := func(text, label string) ([]string, error) {
 		var matches []string
 		lines := splitLines(text)
 		for i, line := range lines {
-			if err := ctx.Err(); err != nil {
-				return matches
+			// Cancellation check every 256 lines keeps per-line
+			// overhead negligible on small inputs while still
+			// responding promptly on long ones.
+			if i&0xff == 0 {
+				if err := ctx.Err(); err != nil {
+					return matches, err
+				}
 			}
 			isMatch := regex.MatchString(line)
 			if invert {
@@ -71,7 +80,7 @@ func BuiltinGrep(ctx context.Context, env *ExecEnv, args []string, stdin string)
 				matches = append(matches, prefix+num+line)
 			}
 		}
-		return matches
+		return matches, nil
 	}
 
 	var allMatches []string
@@ -79,7 +88,11 @@ func BuiltinGrep(ctx context.Context, env *ExecEnv, args []string, stdin string)
 
 	switch {
 	case len(targets) == 0 && stdin != "":
-		allMatches = grepText(stdin, "")
+		m, gerr := grepText(stdin, "")
+		if gerr != nil {
+			return shell.ExecResult{ExitCode: 130, Stderr: gerr.Error() + "\n"}
+		}
+		allMatches = m
 	case recursive && len(targets) > 0:
 		if env.FS == nil {
 			return shell.ExecResult{Stderr: "grep: no filesystem\n", ExitCode: 2}
@@ -98,7 +111,10 @@ func BuiltinGrep(ctx context.Context, env *ExecEnv, args []string, stdin string)
 				if rerr != nil {
 					continue
 				}
-				m := grepText(text, fp)
+				m, gerr := grepText(text, fp)
+				if gerr != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: gerr.Error() + "\n"}
+				}
 				if len(m) > 0 {
 					matchedFiles = append(matchedFiles, fp)
 					allMatches = append(allMatches, m...)
@@ -128,7 +144,10 @@ func BuiltinGrep(ctx context.Context, env *ExecEnv, args []string, stdin string)
 			if len(targets) > 1 {
 				label = target
 			}
-			m := grepText(text, label)
+			m, gerr := grepText(text, label)
+			if gerr != nil {
+				return shell.ExecResult{ExitCode: 130, Stderr: gerr.Error() + "\n"}
+			}
 			if len(m) > 0 {
 				matchedFiles = append(matchedFiles, target)
 				allMatches = append(allMatches, m...)
@@ -209,6 +228,12 @@ func BuiltinHead(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	if n > len(lines) {
 		n = len(lines)
 	}
+	// Honour cancellation once up front — head is O(1) per line once
+	// the slice is cut, but very large inputs can make splitLines
+	// itself expensive; a single check at entry is cheap insurance.
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+	}
 	out := lines[:n]
 	if len(out) == 0 {
 		return shell.ExecResult{}
@@ -257,6 +282,9 @@ func BuiltinTail(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	if n > len(lines) {
 		n = len(lines)
 	}
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+	}
 	out := lines[len(lines)-n:]
 	if len(out) == 0 {
 		return shell.ExecResult{}
@@ -283,6 +311,9 @@ func BuiltinWc(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 			return shell.ExecResult{Stderr: err.Error() + "\n", ExitCode: 1}
 		}
 		text = s
+	}
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
 	}
 	lc := strings.Count(text, "\n")
 	wc := len(strings.Fields(text))
@@ -328,6 +359,12 @@ func BuiltinSort(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	}
 	lines := splitLines(text)
 
+	// Cancellation check before the sort — the sort itself is a single
+	// O(n log n) call we can't easily interleave, but we can at least
+	// bail out if the caller already gave up before we started.
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+	}
 	if numeric {
 		numericRe := regexp.MustCompile(`^-?\d+\.?\d*`)
 		keyOf := func(s string) float64 {
@@ -356,7 +393,12 @@ func BuiltinSort(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	if unique {
 		seen := map[string]struct{}{}
 		out := lines[:0]
-		for _, l := range lines {
+		for i, l := range lines {
+			if shouldCheckCtx(i) {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
 			if _, ok := seen[l]; ok {
 				continue
 			}
@@ -390,6 +432,11 @@ func BuiltinUniq(ctx context.Context, env *ExecEnv, args []string, stdin string)
 		}
 	}
 	for i, line := range lines {
+		if shouldCheckCtx(i) {
+			if err := ctx.Err(); err != nil {
+				return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+			}
+		}
 		l := line
 		if prev != nil && *prev == l {
 			cnt++
@@ -447,7 +494,12 @@ func BuiltinCut(ctx context.Context, env *ExecEnv, args []string, stdin string) 
 	}
 	lines := splitLines(stdin)
 	var out []string
-	for _, line := range lines {
+	for i, line := range lines {
+		if shouldCheckCtx(i) {
+			if err := ctx.Err(); err != nil {
+				return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+			}
+		}
 		parts := strings.Split(line, delimiter)
 		var selected []string
 		for _, f := range fields {
@@ -474,7 +526,14 @@ func BuiltinTr(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 			chars[r] = struct{}{}
 		}
 		var b strings.Builder
+		count := 0
 		for _, r := range stdin {
+			if shouldCheckCtx(count) {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
+			count++
 			if _, skip := chars[r]; skip {
 				continue
 			}
@@ -501,7 +560,14 @@ func BuiltinTr(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 			table[set1[i]] = set2[i]
 		}
 		var b strings.Builder
+		count := 0
 		for _, r := range stdin {
+			if shouldCheckCtx(count) {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
+			count++
 			if mapped, ok := table[r]; ok {
 				b.WriteRune(mapped)
 			} else {
@@ -535,6 +601,9 @@ func BuiltinSed(ctx context.Context, env *ExecEnv, args []string, stdin string) 
 	}
 	if expr == "" {
 		return shell.ExecResult{Stdout: stdin}
+	}
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
 	}
 	text := stdin
 	if len(files) > 0 {
@@ -746,4 +815,18 @@ func splitLines(s string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
+}
+
+// ctxCheckStride is the iteration interval at which loop-heavy
+// builtins poll ctx.Err. 256 iterations keeps the per-check overhead
+// negligible on small inputs while still responding promptly on large
+// ones (the evaluator's own MaxIterations cap is 10,000, so at most
+// ~40 checks per run).
+const ctxCheckStride = 256
+
+// shouldCheckCtx returns true when i is at a cancellation checkpoint.
+// Callers combine with ctx.Err() and bail out when the context has been
+// cancelled. Using bit-mask avoids the modulus cost on the hot path.
+func shouldCheckCtx(i int) bool {
+	return i&(ctxCheckStride-1) == 0
 }

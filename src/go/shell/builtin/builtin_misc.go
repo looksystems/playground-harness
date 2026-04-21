@@ -274,7 +274,12 @@ func BuiltinJq(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 	// Python prints each item on its own line.
 	if arr, ok := result.([]any); ok && strings.HasSuffix(query, "[]") {
 		var parts []string
-		for _, item := range arr {
+		for i, item := range arr {
+			if i&0xff == 0 {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
 			if raw {
 				if s, ok := item.(string); ok {
 					parts = append(parts, s)

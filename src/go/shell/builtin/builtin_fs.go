@@ -157,7 +157,12 @@ func BuiltinLs(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 		return shell.ExecResult{Stdout: strings.Join(entries, "\n") + "\n"}
 	}
 	var lines []string
-	for _, entry := range entries {
+	for i, entry := range entries {
+		if shouldCheckCtx(i) {
+			if err := ctx.Err(); err != nil {
+				return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+			}
+		}
 		full := path.Join(resolved, entry)
 		info, err := env.FS.Stat(full)
 		if err != nil {
@@ -212,6 +217,9 @@ func BuiltinFind(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	if pattern == "" {
 		pattern = "*"
 	}
+	if err := ctx.Err(); err != nil {
+		return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+	}
 	results, err := env.FS.Find(resolved, pattern)
 	if err != nil {
 		return shell.ExecResult{
@@ -224,7 +232,12 @@ func BuiltinFind(ctx context.Context, env *ExecEnv, args []string, stdin string)
 	// directories), so type=d filter yields empty in practice. Match.
 	if typeFilter == "f" {
 		filtered := results[:0]
-		for _, r := range results {
+		for i, r := range results {
+			if shouldCheckCtx(i) {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
 			if !env.FS.IsDir(r) {
 				filtered = append(filtered, r)
 			}
@@ -232,7 +245,12 @@ func BuiltinFind(ctx context.Context, env *ExecEnv, args []string, stdin string)
 		results = filtered
 	} else if typeFilter == "d" {
 		filtered := results[:0]
-		for _, r := range results {
+		for i, r := range results {
+			if shouldCheckCtx(i) {
+				if err := ctx.Err(); err != nil {
+					return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+				}
+			}
 			if env.FS.IsDir(r) {
 				filtered = append(filtered, r)
 			}
@@ -329,7 +347,12 @@ func BuiltinRm(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 	if env.FS == nil {
 		return shell.ExecResult{Stderr: "rm: no filesystem\n", ExitCode: 1}
 	}
-	for _, a := range args {
+	for i, a := range args {
+		if shouldCheckCtx(i) {
+			if err := ctx.Err(); err != nil {
+				return shell.ExecResult{ExitCode: 130, Stderr: err.Error() + "\n"}
+			}
+		}
 		if strings.HasPrefix(a, "-") {
 			continue
 		}

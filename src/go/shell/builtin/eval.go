@@ -648,6 +648,18 @@ func (e *Evaluator) evalPipeline(ctx context.Context, n *Pipeline, stdin string)
 	var lastResult shell.ExecResult
 	var allStderr strings.Builder
 	for _, cmd := range n.Commands {
+		// Honour cancellation between pipeline stages so callers can
+		// interrupt a multi-stage pipeline without waiting for the
+		// next (potentially long-running) builtin to finish. We
+		// preserve the accumulated stderr so the caller still sees
+		// what was produced before cancellation.
+		if err := ctx.Err(); err != nil {
+			return shell.ExecResult{
+				Stdout:   lastResult.Stdout,
+				Stderr:   allStderr.String() + err.Error() + "\n",
+				ExitCode: 130,
+			}, nil
+		}
 		res, err := e.evalNode(ctx, cmd, currentStdin)
 		if err != nil {
 			return shell.ExecResult{}, err
@@ -671,6 +683,17 @@ func (e *Evaluator) evalList(ctx context.Context, n *List, stdin string) (shell.
 	var errb strings.Builder
 	exit := 0
 	for _, s := range n.Statements {
+		// Honour cancellation between statements so an interrupted
+		// script returns its partial output instead of silently
+		// running every remaining command.
+		if err := ctx.Err(); err != nil {
+			errb.WriteString(err.Error() + "\n")
+			return shell.ExecResult{
+				Stdout:   out.String(),
+				Stderr:   errb.String(),
+				ExitCode: 130,
+			}, nil
+		}
 		r, err := e.evalNode(ctx, s, stdin)
 		if err != nil {
 			return shell.ExecResult{}, err
@@ -705,6 +728,16 @@ func (e *Evaluator) evalAndOr(ctx context.Context, n *AndOr, stdin string) (shel
 	errb.WriteString(res.Stderr)
 	exit := res.ExitCode
 	for i, op := range n.Ops {
+		// Honour cancellation between chained commands — long &&/||
+		// chains should not continue running after ctx is cancelled.
+		if err := ctx.Err(); err != nil {
+			errb.WriteString(err.Error() + "\n")
+			return shell.ExecResult{
+				Stdout:   out.String(),
+				Stderr:   errb.String(),
+				ExitCode: 130,
+			}, nil
+		}
 		runNext := false
 		if op == OpAnd && exit == 0 {
 			runNext = true
@@ -812,6 +845,17 @@ func (e *Evaluator) evalFor(ctx context.Context, n *For, stdin string) (shell.Ex
 	var errb strings.Builder
 	exit := 0
 	for _, item := range items {
+		// Honour cancellation at the top of each iteration so
+		// interrupting a long loop returns partial output with exit
+		// code 130 (SIGINT convention), not the last body's exit.
+		if err := ctx.Err(); err != nil {
+			errb.WriteString(err.Error() + "\n")
+			return shell.ExecResult{
+				Stdout:   out.String(),
+				Stderr:   errb.String(),
+				ExitCode: 130,
+			}, nil
+		}
 		e.iterationCounter++
 		if e.iterationCounter > e.maxIterations() {
 			errb.WriteString("Maximum iteration limit exceeded\n")
@@ -844,6 +888,15 @@ func (e *Evaluator) evalWhile(ctx context.Context, n *While, stdin string) (shel
 	var errb strings.Builder
 	exit := 0
 	for {
+		// Honour cancellation at the top of each iteration.
+		if err := ctx.Err(); err != nil {
+			errb.WriteString(err.Error() + "\n")
+			return shell.ExecResult{
+				Stdout:   out.String(),
+				Stderr:   errb.String(),
+				ExitCode: 130,
+			}, nil
+		}
 		e.iterationCounter++
 		if e.iterationCounter > e.maxIterations() {
 			errb.WriteString("Maximum iteration limit exceeded\n")
