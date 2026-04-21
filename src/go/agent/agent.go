@@ -18,6 +18,7 @@ import (
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
 	"agent-harness/go/shell"
+	"agent-harness/go/skills"
 	"agent-harness/go/tools"
 )
 
@@ -82,6 +83,15 @@ type Agent struct {
 	// always-on semantics of EmitsEvents in Python's StandardAgent.
 	Events *events.Host
 
+	// Skills manages the skill lifecycle. Always non-nil — constructed
+	// by NewAgent — so callers can Mount/Unmount without ceremony.
+	//
+	// Named field (not embedded) so its method names do not collide with
+	// the other subsystems: tools.Registry.Register already occupies the
+	// Register identifier on *Agent, and we prefer Mount/Mounted on the
+	// manager itself for explicit addressing.
+	Skills *skills.Manager
+
 	client llm.Client
 }
 
@@ -92,7 +102,7 @@ type Agent struct {
 // The shell subsystem is not installed: *Agent.Host is nil. Use
 // NewAgentWithShell (or Builder.Shell) to attach a shell driver.
 func NewAgent(model string, client llm.Client) *Agent {
-	return &Agent{
+	a := &Agent{
 		Model:      model,
 		MaxTurns:   defaultMaxTurns,
 		MaxRetries: defaultMaxRetries,
@@ -103,6 +113,10 @@ func NewAgent(model string, client llm.Client) *Agent {
 		Events:     events.NewHost(),
 		client:     client,
 	}
+	// Skill manager is bound to the Agent's AgentAPI surface and wired
+	// last so it sees fully-initialised subsystems.
+	a.Skills = skills.NewManager(a)
+	return a
 }
 
 // NewAgentWithShell constructs an Agent with an attached shell subsystem.
@@ -151,6 +165,29 @@ func (a *Agent) RegisterEvent(t events.EventType) *events.Host {
 // embedded shell.Host field to avoid ambiguity.
 func (a *Agent) EventBus() *events.MessageBus {
 	return a.Events.Bus()
+}
+
+// EmitHook is a convenience wrapper that routes to the embedded hub's
+// fire-and-forget emit path. skills.AgentAPI requires it so the manager
+// can announce SKILL_* lifecycle events without awaiting handlers.
+// Matches Python emit_fire_and_forget semantics.
+func (a *Agent) EmitHook(ctx context.Context, event hooks.Event, args ...any) {
+	a.Hub.EmitAsync(ctx, event, args...)
+}
+
+// MountSkill mounts a skill on the Agent via its Skills manager. It
+// exists as a thin forwarder so *Agent satisfies the SkillHost capability
+// interface declared in hosts.go — the alternative would require
+// embedding the *skills.Manager, which clashes with other subsystems'
+// method names.
+func (a *Agent) MountSkill(ctx context.Context, s skills.Skill, config map[string]any) error {
+	return a.Skills.Mount(ctx, s, config)
+}
+
+// MountedSkills returns the names of the currently mounted skills. See
+// MountSkill for the rationale behind the forwarder.
+func (a *Agent) MountedSkills() []string {
+	return a.Skills.Mounted()
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import (
 	"agent-harness/go/llm"
 	"agent-harness/go/middleware"
 	"agent-harness/go/shell"
+	"agent-harness/go/skills"
 	"agent-harness/go/tools"
 )
 
@@ -47,6 +48,15 @@ type Builder struct {
 	// events subsystem
 	eventTypes    []events.EventType
 	defaultEvents []string
+
+	// skills subsystem — queued mounts applied after Build constructs the
+	// Agent. Each binding carries per-skill config.
+	skillBindings []skillBinding
+}
+
+type skillBinding struct {
+	skill  skills.Skill
+	config map[string]any
 }
 
 type shellCmdBinding struct {
@@ -167,13 +177,40 @@ func (b *Builder) DefaultEvents(names ...string) *Builder {
 	return b
 }
 
+// Skill queues a skill for mount at Build time, with optional per-skill
+// config. Pass nil config when no configuration is needed. Matches
+// Python AgentBuilder.skill.
+func (b *Builder) Skill(s skills.Skill, config map[string]any) *Builder {
+	b.skillBindings = append(b.skillBindings, skillBinding{skill: s, config: config})
+	return b
+}
+
+// Skills queues several skills at once with no per-skill config.
+// Equivalent to calling Skill(s, nil) for each argument.
+func (b *Builder) Skills(ss ...skills.Skill) *Builder {
+	for _, s := range ss {
+		b.skillBindings = append(b.skillBindings, skillBinding{skill: s})
+	}
+	return b
+}
+
+// MountSkill is an alias for Skill that reads better in fluent chains
+// when the builder is being used as a generic "host" (matching the
+// agent.SkillHost capability interface shape). Functionally identical
+// to Skill.
+func (b *Builder) MountSkill(s skills.Skill, config map[string]any) *Builder {
+	return b.Skill(s, config)
+}
+
 // Build assembles the Agent. It returns an error when required pieces are
 // missing: Client (non-nil) and Model (non-empty). It never panics.
 //
-// The ctx argument is accepted for parity with the Python coroutine but is
-// currently unused; future expansions (skill mount, shell bootstrap) will
-// consume it.
-func (b *Builder) Build(_ context.Context) (*Agent, error) {
+// Skills queued via Builder.Skill / Builder.Skills are mounted after
+// every other subsystem is wired so their Setup hooks see a fully
+// configured agent. The skills.PromptMiddleware is installed once when
+// at least one skill is queued — it reads the live manager state on
+// each Pre pass so later Mount/Unmount calls are reflected automatically.
+func (b *Builder) Build(ctx context.Context) (*Agent, error) {
 	if b.model == "" {
 		return nil, errors.New("agent.Builder: Model must be set (NewBuilder was called with empty string?)")
 	}
@@ -241,6 +278,20 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 		// (ResolveActive will skip missing names). No middleware,
 		// because there is nothing to prompt about.
 		a.Events.SetDefaults(b.defaultEvents...)
+	}
+
+	// Skills: install the prompt middleware first so each skill's
+	// instructions feed into every subsequent LLM call. The middleware
+	// reads a.Skills.Active() on each Pre pass, so adding skills after
+	// Build still produces correct output. Mount order matches the
+	// queue order.
+	if len(b.skillBindings) > 0 {
+		a.Use(skills.NewPromptMiddleware(a.Skills))
+		for _, sb := range b.skillBindings {
+			if err := a.Skills.Mount(ctx, sb.skill, sb.config); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return a, nil
 }

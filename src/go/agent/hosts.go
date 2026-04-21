@@ -7,6 +7,7 @@ import (
 	"agent-harness/go/hooks"
 	"agent-harness/go/middleware"
 	"agent-harness/go/shell"
+	"agent-harness/go/skills"
 	"agent-harness/go/tools"
 )
 
@@ -63,6 +64,21 @@ type EventsHost interface {
 	EventBus() *events.MessageBus
 }
 
+// SkillHost is the capability a component needs from an Agent to mount
+// skills and inspect the current mount list.
+//
+// *Agent satisfies this interface via the MountSkill / MountedSkills
+// forwarder methods (which delegate to the Skills manager). The names
+// on the interface are deliberately different from the *skills.Manager
+// methods (Mount / Mounted) because the agent's method set is what
+// external callers see; Mount already has a very generic meaning and
+// MountSkill reads better in contexts where the receiver is treated
+// as an arbitrary host.
+type SkillHost interface {
+	MountSkill(ctx context.Context, s skills.Skill, config map[string]any) error
+	MountedSkills() []string
+}
+
 // compile-time assertions — *Agent satisfies each capability interface.
 // ShellHost is also included because *shell.Host's method set is promoted
 // whether or not the embedded pointer is nil — the assertion is a
@@ -75,4 +91,9 @@ var (
 	_ MiddlewareHost = (*Agent)(nil)
 	_ ShellHost      = (*Agent)(nil)
 	_ EventsHost     = (*Agent)(nil)
+	_ SkillHost      = (*Agent)(nil)
 )
+
+// Compile-time assertion that *Agent satisfies skills.AgentAPI — the
+// narrow surface the skill manager uses to talk back to its host.
+var _ skills.AgentAPI = (*Agent)(nil)
