@@ -288,3 +288,54 @@ func TestAgent_ExecToolSchema(t *testing.T) {
 	// And tools.Def parity for the tests below.
 	var _ tools.Def = def
 }
+
+// ---------------------------------------------------------------------------
+// NewAgentWithShell auto-registers exec (review finding I6 / Fix 6).
+// ---------------------------------------------------------------------------
+
+func TestNewAgentWithShell_RegistersExecTool(t *testing.T) {
+	d := builtin.NewBuiltinShellDriver()
+	a := agent.NewAgentWithShell("m", &scriptedClient{}, d)
+	require.NotNil(t, a.Host)
+	require.Same(t, d, a.Host.Driver)
+
+	def, ok := a.Get("exec")
+	require.True(t, ok, "NewAgentWithShell must auto-register the exec tool")
+	assert.Equal(t, "exec", def.Name)
+	require.NotNil(t, def.Execute)
+}
+
+func TestNewAgentWithShell_NilDriver_UsesDefaultAndRegistersExec(t *testing.T) {
+	a := agent.NewAgentWithShell("m", &scriptedClient{}, nil)
+	require.NotNil(t, a.Host)
+	require.NotNil(t, a.Host.Driver, "default driver must be constructed")
+
+	_, ok := a.Get("exec")
+	require.True(t, ok, "exec tool must be auto-registered when driver is nil")
+}
+
+func TestBuilder_Shell_DoesNotDoubleRegisterExec(t *testing.T) {
+	// Builder.Build previously re-registered exec on top of what
+	// NewAgentWithShell already did. Now that the registration moved,
+	// Build must NOT call Register again — the tools.Registry replaces
+	// an existing entry so the old shape would silently overwrite,
+	// but we still want a single source of truth.
+	a, err := agent.NewBuilder("m").
+		Client(&scriptedClient{}).
+		Shell(nil).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	// Count "exec" entries in Schemas — there must be exactly one.
+	count := 0
+	for _, s := range a.Schemas() {
+		fn, ok := s["function"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if fn["name"] == "exec" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "exec tool must appear exactly once")
+}

@@ -176,10 +176,10 @@ func (b *Builder) Build(_ context.Context) (*Agent, error) {
 		a.Hub.On(hb.event, hb.handler)
 	}
 
-	// Auto-register the `exec` tool if a shell is attached, then apply any
-	// custom commands supplied via Builder.Command(...).
+	// The `exec` tool is already registered by NewAgentWithShell when
+	// the shell subsystem is attached. Here we only need to wire up
+	// any custom commands supplied via Builder.Command(...).
 	if a.Host != nil {
-		a.Register(a.Host.ShellTool())
 		for _, cmd := range b.shellCommands {
 			a.Host.RegisterCommand(cmd.name, cmd.handler)
 		}

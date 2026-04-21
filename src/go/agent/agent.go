@@ -103,12 +103,21 @@ func NewAgent(model string, client llm.Client) *Agent {
 // return an error.
 //
 // The Host is wired to the Agent's hook hub so SHELL_* events surface
-// through the same registry that consumers observe via Agent.On.
+// through the same registry that consumers observe via Agent.On. The
+// `exec` tool (see Host.ShellTool) is auto-registered on the agent's
+// tools.Registry so the LLM can invoke it without extra setup.
 func NewAgentWithShell(model string, client llm.Client, driver shell.Driver) *Agent {
 	a := NewAgent(model, client)
 	host := shell.NewHost(driver)
 	host.SetHub(a.Hub)
 	a.Host = host
+	// Auto-register the `exec` tool. Builder.Build used to do this
+	// itself; we move it here so direct callers of NewAgentWithShell
+	// get the same out-of-the-box behaviour and there is only one
+	// place that wires the tool in.
+	if host.Driver != nil {
+		a.Register(host.ShellTool())
+	}
 	return a
 }
 
