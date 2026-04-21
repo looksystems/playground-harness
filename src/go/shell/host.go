@@ -63,15 +63,6 @@ func (h *Host) SetHub(hub *hooks.Hub) {
 	h.mu.Unlock()
 }
 
-// HookHub returns the currently-wired hub (may be nil). Named HookHub so
-// that embedding *Host into an Agent (which also anonymously embeds
-// *hooks.Hub as Hub) doesn't create an ambiguous-selector collision.
-func (h *Host) HookHub() *hooks.Hub {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.hub
-}
-
 // Exec is the primary user-facing entry point. It emits the SHELL_* hook
 // surface around the underlying Driver.Exec call. On CWD change, also emits
 // ShellCwd with (oldCWD, newCWD).
