@@ -436,6 +436,63 @@ func TestRun_toolError_doesNotAbort(t *testing.T) {
 	assert.Equal(t, "kaboom", envelope["error"])
 }
 
+// Scenario 5b: unknown tool call gets enveloped and the run continues,
+// matching Python uses_tools.py behaviour. ToolCall/ToolResult must NOT fire;
+// ToolError fires exactly once.
+func TestRun_unknownTool_envelopedAndContinues(t *testing.T) {
+	fc := newFakeClient()
+	fc.scriptComplete(
+		fakeCompleteStep{msg: middleware.Message{
+			Role: "assistant",
+			ToolCalls: []middleware.ToolCall{{
+				ID:        "tc_bogus",
+				Name:      "does_not_exist",
+				Arguments: `{}`,
+			}},
+		}},
+		fakeCompleteStep{msg: middleware.Message{Role: "assistant", Content: "ok anyway"}},
+	)
+
+	// Deliberately register NO tools.
+	a, err := NewBuilder("m").Client(fc).Streaming(false).Build(context.Background())
+	require.NoError(t, err)
+
+	var toolCallCount, toolResultCount, toolErrorCount atomic.Int32
+	a.On(hooks.ToolCall, func(_ context.Context, _ ...any) { toolCallCount.Add(1) })
+	a.On(hooks.ToolResult, func(_ context.Context, _ ...any) { toolResultCount.Add(1) })
+	a.On(hooks.ToolError, func(_ context.Context, _ ...any) { toolErrorCount.Add(1) })
+
+	out, err := a.Run(context.Background(), []middleware.Message{{Role: "user", Content: "go"}})
+	require.NoError(t, err, "unknown tool must not abort the run")
+	assert.Equal(t, "ok anyway", out)
+	assert.Equal(t, 2, fc.completeCalls)
+
+	// Verify hook invocations.
+	assert.EqualValues(t, 0, toolCallCount.Load(), "ToolCall must NOT fire for unknown tools")
+	assert.EqualValues(t, 0, toolResultCount.Load(), "ToolResult must NOT fire for unknown tools")
+	assert.EqualValues(t, 1, toolErrorCount.Load(), "ToolError fires once")
+
+	// The second LLM request must contain a tool message with the
+	// unknown-tool envelope.
+	require.Len(t, fc.observeRequests, 2)
+	msgs := fc.observeRequests[1].Messages
+	var toolMsg *middleware.Message
+	for i := range msgs {
+		if msgs[i].Role == "tool" {
+			m := msgs[i]
+			toolMsg = &m
+			break
+		}
+	}
+	require.NotNil(t, toolMsg, "unknown-tool path must append a tool message")
+	assert.Equal(t, "tc_bogus", toolMsg.ToolCallID)
+	assert.Equal(t, "does_not_exist", toolMsg.Name)
+
+	var envelope map[string]string
+	require.NoError(t, json.Unmarshal([]byte(toolMsg.Content), &envelope))
+	assert.Equal(t, "Unknown tool: does_not_exist", envelope["error"])
+}
+
 // Scenario 6: MaxTurns=1 must not loop even if the LLM returns tool calls.
 func TestRun_maxTurnsCap(t *testing.T) {
 	fc := newFakeClient()

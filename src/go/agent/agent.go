@@ -260,6 +260,26 @@ func (a *Agent) Run(ctx context.Context, messages []middleware.Message) (string,
 			}
 
 			argsBytes := []byte(tc.Arguments)
+
+			// Unknown tools: mirror Python uses_tools.py which envelopes
+			// the failure as the tool message and keeps the conversation
+			// going. We intentionally skip ToolCall/ToolResult for these
+			// — there is no real call to observe — but fire ToolError so
+			// observers still see the failure.
+			if _, ok := a.Registry.Get(tc.Name); !ok {
+				envelope, _ := json.Marshal(map[string]string{"error": fmt.Sprintf("Unknown tool: %s", tc.Name)})
+				if err := a.Emit(ctx, hooks.ToolError, tc.Name, tools.ErrNotFound); err != nil {
+					return "", err
+				}
+				messages = append(messages, middleware.Message{
+					Role:       "tool",
+					Name:       tc.Name,
+					ToolCallID: tc.ID,
+					Content:    string(envelope),
+				})
+				continue
+			}
+
 			if err := a.Emit(ctx, hooks.ToolCall, tc.Name, argsBytes); err != nil {
 				return "", err
 			}
@@ -290,10 +310,13 @@ func (a *Agent) Run(ctx context.Context, messages []middleware.Message) (string,
 // executeTool runs a single tool call, fires the matching hooks, and returns
 // the JSON-encoded content that should become the `tool` message's body.
 //
-// It returns a dispatch-level error only when the tool is not registered
-// (tools.ErrNotFound); all tool runtime errors are converted to
-// `{"error":"<msg>"}` envelopes and returned as the tool message content so
-// the conversation can continue — matching Python's _execute_tool.
+// Callers are expected to have already checked that name is registered (the
+// Run loop does this so it can envelope unknown-tool calls without firing
+// ToolCall/ToolResult). As a defensive fallback, if Execute still returns
+// tools.ErrNotFound we bubble it up as a dispatch error; all other runtime
+// errors are converted to `{"error":"<msg>"}` envelopes and returned as the
+// tool message content so the conversation can continue — matching Python's
+// _execute_tool.
 func (a *Agent) executeTool(ctx context.Context, name string, args []byte) (string, error) {
 	result, err := a.Registry.Execute(ctx, name, args)
 	if err != nil {
