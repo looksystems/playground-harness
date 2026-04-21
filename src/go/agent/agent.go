@@ -383,8 +383,15 @@ func aggregateStream(ctx context.Context, ch <-chan llm.Chunk) (middleware.Messa
 			return middleware.Message{}, ctx.Err()
 		case chunk, ok := <-ch:
 			if !ok {
-				// Producer closed without a terminal Done chunk. Treat as
-				// clean end-of-stream.
+				// Producer closed without a terminal Done chunk. If the
+				// context was cancelled concurrently Go's select may
+				// have picked this arm non-deterministically — re-check
+				// ctx.Err() so a cancelled run still surfaces the
+				// cancellation instead of masquerading as a clean
+				// end-of-stream.
+				if err := ctx.Err(); err != nil {
+					return middleware.Message{}, err
+				}
 				return finaliseStream(content, accums), nil
 			}
 			if chunk.Err != nil {

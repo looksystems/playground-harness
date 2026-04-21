@@ -571,3 +571,44 @@ func TestAggregateStream_propagatesChunkErr(t *testing.T) {
 	_, err := aggregateStream(context.Background(), ch)
 	require.ErrorIs(t, err, sentinel)
 }
+
+// TestAggregateStream_ClosedChannelWithCancelledCtx ensures ctx cancellation
+// is not masked by a producer that closed the channel without emitting a
+// terminal chunk. Go's select is non-deterministic when both arms are ready,
+// so without a ctx.Err() check on the !ok branch the aggregator occasionally
+// returned a clean empty message despite the context being cancelled.
+func TestAggregateStream_ClosedChannelWithCancelledCtx(t *testing.T) {
+	ch := make(chan llm.Chunk)
+	close(ch)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // both arms of the select will be ready on first iteration.
+
+	// Run many trials so we exercise the non-determinism of the select.
+	for i := 0; i < 200; i++ {
+		_, err := aggregateStream(ctx, ch)
+		require.Error(t, err, "iteration %d: cancelled ctx must not be masked by closed channel", i)
+		require.ErrorIs(t, err, context.Canceled)
+	}
+}
+
+// TestRun_aggregateStream_raceWithClosedChannel is an end-to-end variant: a
+// pre-cancelled ctx passed through Run should surface context.Canceled even
+// when the fake producer closes its channel without emitting a terminal
+// chunk.
+func TestRun_aggregateStream_raceWithClosedChannel(t *testing.T) {
+	fc := newFakeClient()
+	// Empty chunks slice means the goroutine immediately closes the
+	// channel after starting, without ever sending a Done.
+	fc.scriptStream(fakeStreamStep{chunks: nil})
+
+	a, err := NewBuilder("m").Client(fc).Streaming(true).Build(context.Background())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, runErr := a.Run(ctx, []middleware.Message{{Role: "user", Content: "q"}})
+	require.Error(t, runErr)
+	assert.True(t, errors.Is(runErr, context.Canceled), "expected context.Canceled, got %v", runErr)
+}
