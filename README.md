@@ -40,6 +40,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 ### Cross-Cutting Guides
 
 - [Skills](docs/guides/skills.md) — Mountable capability bundles (tools + middleware + hooks + commands + instructions)
+- [Middleware](docs/guides/middleware.md) — Sequential Pre/Post transformation pipeline around every LLM request
 - [Hooks](docs/guides/hooks.md) — Lifecycle events, handler registration, concurrency, and panic isolation
 - [Tools](docs/guides/tools.md) — LLM-callable functions with auto-generated JSON schemas, cross-language registration, and error handling
 
