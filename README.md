@@ -37,6 +37,10 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [PHP](docs/guides/php.md)
 - [Go](docs/guides/go.md)
 
+### Cross-Cutting Guides
+
+- [Skills](docs/guides/skills.md) — Mountable capability bundles (tools + middleware + hooks + commands + instructions)
+
 ### Shell Guides
 
 - [Virtual Bash](docs/guides/virtual-bash-reference.md) — Supported syntax, commands, and limitations
