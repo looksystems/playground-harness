@@ -1,6 +1,6 @@
 # Virtual Bash Reference
 
-Complete reference for the syntax, commands, and features supported by the virtual shell interpreter. All three language implementations (TypeScript, Python, PHP) share identical behavior.
+Complete reference for the syntax, commands, and features supported by the virtual shell interpreter. All four language implementations (Python, TypeScript, PHP, Go) share identical behavior — the Go interpreter (`shell/builtin`) ports the Python reference token-for-token, with a golden-parity fixture at `src/go/shell/builtin/testdata/golden.json` verifying output equality.
 
 ---
 
