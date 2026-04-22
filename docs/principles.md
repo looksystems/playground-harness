@@ -15,6 +15,7 @@ How this is expressed varies by language:
 - **Python:** Multiple inheritance mixins with a lazy-init pattern. Each mixin defines an `__init_has_<capability>__()` method that is called on first access via `hasattr` checks, avoiding MRO `__init__` conflicts entirely. No cooperative `super().__init__()` chains required.
 - **TypeScript:** Function-based mixins of the form `HasHooks<TBase extends Constructor>(Base: TBase)` that return anonymous classes extending the base. This is the idiomatic TypeScript approach to mixins and plays well with the type system.
 - **PHP:** Native `trait` keyword -- the language's built-in composition mechanism. No workarounds needed; PHP traits are purpose-built for this.
+- **Go:** Pointer struct embedding (`*hooks.Hub`, `*tools.Registry`, `*middleware.Chain`) with method promotion. Subsystems whose public method names collide (`events.Host`, `skills.Manager`) are named fields with thin forwarders. Narrow capability interfaces (`ToolsHost`, `HooksHost`, `ShellHost`, ...) let cross-cutting code like the skill manager detect features at runtime via type assertion -- the Go analogue of Python's `hasattr` probe. Eager initialisation in `NewAgent`; no lazy-init. See ADR 0031.
 
 ## 2. Opt-in Complexity
 
@@ -31,6 +32,7 @@ Each language implementation follows that language's conventions rather than bei
 - **Python:** async/await throughout, litellm for multi-provider LLM support, dataclasses for data structures, `Protocol` for interfaces.
 - **TypeScript:** OpenAI SDK for LLM calls, interfaces for contracts, function-based mixins (idiomatic TS pattern), `Promise.allSettled` for concurrent hook dispatch.
 - **PHP:** Guzzle HTTP for LLM calls, native traits for composition, string-backed enums, synchronous execution model, Generators for streaming.
+- **Go:** Thin in-tree LLM provider interface with OpenAI and Anthropic implementations (ADR 0033), channels for streaming with producer-owned lifecycle and terminal-event errors (ADR 0032), `context.Context` first-arg on every public I/O boundary, `sync.RWMutex` on every registry, goroutines + `sync.WaitGroup` for concurrent hook dispatch, `gopkg.in/yaml.v3` for event parsing.
 
 Shared concepts (the agent loop, hook lifecycle, middleware pipeline, event system) are consistent across languages, but the expression of those concepts respects each language's idioms and ecosystem.
 
