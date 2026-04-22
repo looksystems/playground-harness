@@ -1,6 +1,6 @@
 # Agent Harness
 
-A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, and PHP with trait/mixin-based composition.
+A lightweight, composable framework for building LLM-powered agents. Implemented across Python, TypeScript, PHP, and Go, using each language's native composition pattern.
 
 Agent Harness provides a small set of well-defined building blocks that can be mixed and matched to assemble agents with exactly the capabilities you need — nothing more.
 
@@ -50,6 +50,10 @@ Function-based mixins applied to a base class. Uses the OpenAI SDK for LLM calls
 
 Native PHP traits for composition. Uses Guzzle HTTP for LLM calls. Streaming is implemented with Generator-based iteration.
 
+### Go
+
+Struct embedding + narrow capability interfaces for composition (ADR 0031). Thin in-tree LLM provider interface with OpenAI and Anthropic implementations (ADR 0033). Streaming via channels with producer-owned lifecycle and terminal-event errors (ADR 0032).
+
 ## Quick Start
 
 Language-specific guides with setup instructions and examples:
@@ -57,6 +61,7 @@ Language-specific guides with setup instructions and examples:
 - [Python Guide](guides/python.md)
 - [TypeScript Guide](guides/typescript.md)
 - [PHP Guide](guides/php.md)
+- [Go Guide](guides/go.md)
 
 ## Further Reading
 
