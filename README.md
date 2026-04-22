@@ -44,6 +44,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Middleware](docs/guides/middleware.md) — Sequential Pre/Post transformation pipeline around every LLM request
 - [Hooks](docs/guides/hooks.md) — Lifecycle events, handler registration, concurrency, and panic isolation
 - [Tools](docs/guides/tools.md) — LLM-callable functions with auto-generated JSON schemas, cross-language registration, and error handling
+- [Events](docs/guides/events.md) — Inline YAML events emitted by the LLM, parser + message bus, streaming fields
 
 ### Shell Guides
 
