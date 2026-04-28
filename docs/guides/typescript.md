@@ -72,6 +72,30 @@ const MyAgent = UsesTools(HasHooks(BaseAgent));
 const agent = new MyAgent({ model: "gpt-4" });
 ```
 
+## LLM Providers
+
+The TypeScript harness uses the [`openai`](https://github.com/openai/openai-node) SDK directly. Out of the box that means OpenAI native; for Anthropic, OpenRouter, litellm-proxy, or anything else with an OpenAI-compatible endpoint, supply `baseURL` (an OpenAI SDK option that passes through via constructor rest params):
+
+```typescript
+import { StandardAgent } from "./standard-agent.js";
+
+// OpenAI default
+const agent = new StandardAgent({
+  model: "gpt-4o",
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// OpenAI-compatible endpoint targeting Anthropic
+const agent = new StandardAgent({
+  model: "claude-sonnet-4-6",
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  baseURL: "https://api.anthropic.com/v1/",
+  temperature: 0.2,
+});
+```
+
+`maxRetries` (default 2) controls exponential back-off; `stream: true` (default) uses the SDK's streaming iterator. Any unrecognised constructor option flows through to `client.chat.completions.create(...)` via `extraOptions`. There is no native Anthropic adapter — use an OpenAI-compatible proxy (Anthropic ships one). See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+
 ## Lifecycle Hooks
 
 The `HookEvent` enum defines 23 lifecycle events (the same 22 as Python plus `HOOK_ERROR`). Dispatch uses `Promise.allSettled` so all registered callbacks run concurrently and a single failure does not short-circuit the rest.

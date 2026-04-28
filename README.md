@@ -43,6 +43,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Slash Commands](docs/guides/slash-commands.md) — Design pattern for slash-style commands via skills or custom shell commands
 - [Middleware](docs/guides/middleware.md) — Sequential Pre/Post transformation pipeline around every LLM request
 - [Hooks](docs/guides/hooks.md) — Lifecycle events, handler registration, concurrency, and panic isolation
+- [LLM Providers](docs/guides/llm-providers.md) — Which providers each language supports today, how to configure model strings, API keys, base URLs, streaming, retries, and the per-language asymmetry
 - [Tools](docs/guides/tools.md) — LLM-callable functions with auto-generated JSON schemas, cross-language registration, and error handling
 - [Exec Tool](docs/guides/exec-tool.md) — Auto-registered shell tool the LLM uses to run any virtual-shell command, with an opt-in `Bash` alias for Claude Code prompt portability
 - [File Tools](docs/guides/file-tools.md) — Built-in Read/Write/Edit/Glob/Grep mirroring Claude Code's surface, over the swappable FilesystemDriver

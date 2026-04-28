@@ -82,6 +82,28 @@ class MyAgent extends BaseAgent
 }
 ```
 
+## LLM Providers
+
+The PHP harness uses Guzzle to POST `/v1/chat/completions` in OpenAI's wire format. `baseUrl` defaults to `https://api.openai.com/v1`; `apiKey` is sent as a `Bearer` token; extra fields go through `completionParams`:
+
+```php
+use AgentHarness\AgentBuilder;
+
+// OpenAI default
+$agent = (new AgentBuilder('gpt-4o'))
+    ->apiKey(getenv('OPENAI_API_KEY'))
+    ->build();
+
+// OpenAI-compatible endpoint (Anthropic, OpenRouter, litellm-proxy, …)
+$agent = (new AgentBuilder('claude-sonnet-4-6'))
+    ->baseUrl('https://api.anthropic.com/v1')
+    ->apiKey(getenv('ANTHROPIC_API_KEY'))
+    ->completionParams(['temperature' => 0.2, 'max_tokens' => 2048])
+    ->build();
+```
+
+`maxRetries` (default 2) controls exponential back-off. `stream: true` (default) currently sets the body parameter but does not consume an SSE stream — pass `stream: false` for non-streaming endpoints. There is no native Anthropic adapter — use an OpenAI-compatible proxy. See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+
 ## Lifecycle Hooks
 
 `HookEvent` is a string-backed enum with 23 cases (including `HookError`). Because PHP is synchronous,

@@ -64,6 +64,26 @@ class MyAgent(BaseAgent, HasHooks, UsesTools):
 
 This gives you lifecycle hooks and tool support without middleware or event streaming.
 
+## LLM Providers
+
+The Python harness uses [`litellm`](https://docs.litellm.ai/) for all LLM calls — model strings carry a provider prefix (`anthropic/...`, `openai/...`, `bedrock/...`, `gemini/...`, etc.) and litellm routes the call. API keys are read from environment variables by litellm convention (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AWS_REGION_NAME`, …); pass other litellm options as constructor kwargs:
+
+```python
+from src.python.standard_agent import StandardAgent
+
+# Anthropic — API key from env
+agent = StandardAgent.build("anthropic/claude-sonnet-4-6").build()
+
+# OpenAI with explicit options
+agent = StandardAgent("openai/gpt-4o",
+                      api_key="sk-...",
+                      api_base="https://my-proxy.example.com/v1",
+                      temperature=0.2,
+                      max_tokens=2048)
+```
+
+`max_retries` (default 2) controls exponential back-off retries; `stream=True` (default) uses litellm's async iterator. The `**litellm_kwargs` escape hatch reaches `litellm.acompletion()` unchanged. See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+
 ## Lifecycle Hooks
 
 Twenty-two hook events are defined in `HookEvent(str, Enum)`:

@@ -52,7 +52,7 @@ Native PHP traits for composition. Uses Guzzle HTTP for LLM calls. Streaming is 
 
 ### Go
 
-Struct embedding + narrow capability interfaces for composition (ADR 0031). Thin in-tree LLM provider interface with OpenAI and Anthropic implementations (ADR 0033). Streaming via channels with producer-owned lifecycle and terminal-event errors (ADR 0032).
+Struct embedding + narrow capability interfaces for composition (ADR 0031). Thin in-tree `llm.Client` interface with OpenAI and Anthropic implementations in `src/go/llm/{openai,anthropic}/` — see [LLM Providers](guides/llm-providers.md). Streaming via channels with producer-owned lifecycle and terminal-event errors.
 
 ## Quick Start
 
@@ -69,6 +69,7 @@ Concepts that span every language implementation:
 
 - [Skills](guides/skills.md) — mountable capability bundles (tools + middleware + hooks + commands + instructions)
 - [Slash Commands](guides/slash-commands.md) — design pattern for slash-style commands via skills or custom shell commands
+- [LLM Providers](guides/llm-providers.md) — which providers each language supports today, how to configure model strings, API keys, base URLs, streaming, retries
 - [Tools](guides/tools.md) — LLM-callable functions with auto-generated JSON schemas
 - [Exec Tool](guides/exec-tool.md) — auto-registered shell tool the LLM uses to run any virtual-shell command, with an opt-in `Bash` alias
 - [File Tools](guides/file-tools.md) — built-in Read/Write/Edit/Glob/Grep matching Claude Code's surface, over the FilesystemDriver

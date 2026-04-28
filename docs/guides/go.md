@@ -400,27 +400,41 @@ type Client interface {
 }
 ```
 
-Two providers ship in-tree:
+Two adapters ship in-tree, both honouring the same set of `With*` options (`WithAPIKey`, `WithBaseURL`, `WithHTTPClient`):
 
 ```go
-import "agent-harness/go/llm/openai"
-import "agent-harness/go/llm/anthropic"
+import (
+    anthropicllm "agent-harness/go/llm/anthropic"
+    openaillm    "agent-harness/go/llm/openai"
+)
 
-c1 := openai.New(openai.WithAPIKey(os.Getenv("OPENAI_API_KEY")))
-c2 := anthropic.New(anthropic.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")))
+// Anthropic native (Messages API)
+c1 := anthropicllm.New(
+    anthropicllm.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
+    anthropicllm.WithMaxTokens(4096), // optional; defaults to 4096
+)
+
+// OpenAI native (or any OpenAI-compatible endpoint via WithBaseURL)
+c2 := openaillm.New(
+    openaillm.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
+    openaillm.WithBaseURL("https://api.openai.com/v1/"), // optional override
+)
 ```
 
-Wrap with `llm.WithRetry` for automatic retry on transient errors:
+If `WithAPIKey` is omitted, the underlying SDK's env-var lookup is used (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). The Anthropic adapter requires `max_tokens`; if neither the request nor `WithMaxTokens` sets one, the adapter falls back to its package default of 4096.
+
+Wrap any `Client` with `llm.WithRetry` for automatic retry on transient errors. The decorator uses functional options:
 
 ```go
 import "agent-harness/go/llm"
 
-retrying := llm.WithRetry(client, llm.RetryConfig{MaxAttempts: 3})
+retrying := llm.WithRetry(client,
+    llm.MaxRetries(3),                   // total attempts = 4
+    llm.MaxDelay(15 * time.Second),      // cap exponential back-off
+)
 ```
 
-Any type satisfying `llm.Client` works — implement the interface to add providers, mock clients in tests, or wrap with observability middleware.
-
-See [ADR 0033](../adr/0033-go-llm-provider-design.md) for the provider design.
+Any type satisfying `llm.Client` works — implement the interface to add providers, mock clients in tests, or wrap with observability middleware. See the [LLM Providers guide](llm-providers.md) for the cross-language provider matrix and the differences vs Python / TypeScript / PHP.
 
 ## Shell Drivers
 
