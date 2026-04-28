@@ -185,6 +185,27 @@ Programmer errors (wrong function shape, unsupported types) panic at constructio
 
 Register via `Builder.Tool(d)` or `a.Registry.Register(d)` after Build.
 
+### Exec Tool
+
+`NewAgentWithShell` (or `Builder.Shell(...).Build()`) auto-registers an `exec` tool on the agent's registry — the LLM can call it with `{"command": "..."}` to run any virtual-shell command. The handler returns a flat string: `stdout` + optional `[stderr] ...` + optional `[exit code: N]`, or `(no output)` if all three are empty.
+
+```go
+agent := agent.NewAgentWithShell("anthropic/claude-sonnet-4-6", client, driver)
+// "exec" is already in agent.Registry.List()
+
+result, _ := agent.Registry.Execute(ctx, "exec", []byte(`{"command": "ls /work"}`))
+```
+
+For Claude-Code-portable prompts, register a `Bash`-named alias of the same handler via `Host.BashAliasTool()`:
+
+```go
+agent.Registry.Register(agent.Host.BashAliasTool())
+// Bash and exec both work, same handler
+out, _ := agent.Registry.Execute(ctx, "Bash", []byte(`{"command": "echo hello"}`))
+```
+
+To skip auto-registration, use `NewAgent` (no shell) or hand-build with `agent.New(...)` and only register the tools you want. See the [Exec Tool guide](exec-tool.md) for the full surface (parameter shape, output format, hooks, divergences from Claude Code).
+
 ### File Tools
 
 `filetools.RegisterAll` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They take a `vfs.FilesystemDriver` directly, plus a `cwdFn func() string` consulted on every Glob/Grep call (so the tools follow the agent's current working directory).

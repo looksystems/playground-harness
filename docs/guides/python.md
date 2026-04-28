@@ -141,6 +141,28 @@ agent.register_tool(add)
 
 The JSON schema for tool parameters is auto-generated from type hints. Both sync and async tool functions are supported.
 
+## Exec Tool
+
+When `HasShell` is composed alongside `UsesTools`, an `exec` tool is auto-registered on the agent — the LLM can call it with `{"command": "..."}` to run any virtual-shell command. The handler returns a flat string: `stdout` + optional `[stderr] ...` + optional `[exit code: N]`, or `(no output)` if all three are empty.
+
+```python
+from src.python.standard_agent import StandardAgent
+
+agent = StandardAgent.build("anthropic/claude-sonnet-4-6").build()
+# 'exec' is already in agent.tools
+
+result = await agent._execute_tool("exec", {"command": "ls /work"})
+```
+
+For Claude-Code-portable prompts, register a `Bash`-named alias of the same handler:
+
+```python
+agent.register_bash_alias()  # Bash and exec both work, same handler
+await agent._execute_tool("Bash", {"command": "echo hello"})
+```
+
+See the [Exec Tool guide](exec-tool.md) for the full surface (parameter shape, output format, hooks, divergences from Claude Code).
+
 ## File Tools
 
 `register_file_tools(agent)` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They delegate to `agent.shell.fs`, so they automatically follow whichever `FilesystemDriver` is active (builtin / bashkit / OpenShell).

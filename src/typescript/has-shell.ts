@@ -57,10 +57,9 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
       }
     }
 
-    private _registerShellTool(): void {
-      const self = this as any;
-      self.registerTool({
-        name: "exec",
+    private _buildShellTool(name: string): any {
+      return {
+        name,
         description:
           "Execute a bash command in the virtual filesystem. " +
           "Commands: ls, cat, grep, find, head, tail, wc, sort, uniq, " +
@@ -87,7 +86,22 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
           },
           required: ["command"],
         },
-      });
+      };
+    }
+
+    private _registerShellTool(): void {
+      (this as any).registerTool(this._buildShellTool("exec"));
+    }
+
+    /**
+     * Register a `Bash`-named alias of the exec tool.
+     *
+     * Useful for prompts and skills authored against Claude Code's tool
+     * naming. The alias dispatches to the same handler as `exec`.
+     */
+    registerBashAlias(): this {
+      (this as any).registerTool(this._buildShellTool("Bash"));
+      return this;
     }
 
     get shell(): ShellDriver {

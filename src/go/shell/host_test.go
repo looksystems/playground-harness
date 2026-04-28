@@ -332,6 +332,25 @@ func TestHost_ShellTool_Formatting_NoOutput(t *testing.T) {
 	assert.Equal(t, "(no output)", runShellTool(t, h, "anything"))
 }
 
+func TestHost_BashAliasTool_NameAndHandler(t *testing.T) {
+	h := shell.NewHost(&mockDriver{result: shell.ExecResult{Stdout: "hi"}})
+	exec := h.ShellTool()
+	bash := h.BashAliasTool()
+
+	assert.Equal(t, "exec", exec.Name)
+	assert.Equal(t, "Bash", bash.Name)
+	assert.Equal(t, exec.Description, bash.Description)
+	assert.Equal(t, exec.Parameters, bash.Parameters)
+
+	argBytes, _ := json.Marshal(map[string]string{"command": "x"})
+	execOut, err := exec.Execute(context.Background(), argBytes)
+	require.NoError(t, err)
+	bashOut, err := bash.Execute(context.Background(), argBytes)
+	require.NoError(t, err)
+	assert.Equal(t, execOut, bashOut)
+	assert.Equal(t, "hi", bashOut)
+}
+
 func TestHost_ShellTool_Formatting_StdoutOnly(t *testing.T) {
 	h := shell.NewHost(&mockDriver{result: shell.ExecResult{Stdout: "hello\n"}})
 	assert.Equal(t, "hello\n", runShellTool(t, h, "echo hello"))

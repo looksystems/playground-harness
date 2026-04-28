@@ -70,6 +70,7 @@ Concepts that span every language implementation:
 - [Skills](guides/skills.md) — mountable capability bundles (tools + middleware + hooks + commands + instructions)
 - [Slash Commands](guides/slash-commands.md) — design pattern for slash-style commands via skills or custom shell commands
 - [Tools](guides/tools.md) — LLM-callable functions with auto-generated JSON schemas
+- [Exec Tool](guides/exec-tool.md) — auto-registered shell tool the LLM uses to run any virtual-shell command, with an opt-in `Bash` alias
 - [File Tools](guides/file-tools.md) — built-in Read/Write/Edit/Glob/Grep matching Claude Code's surface, over the FilesystemDriver
 - [Middleware](guides/middleware.md) — sequential Pre/Post pipeline around every LLM request
 - [Hooks](guides/hooks.md) — lifecycle events, handler registration, concurrency, panic isolation

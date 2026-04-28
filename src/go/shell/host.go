@@ -166,8 +166,19 @@ type shellToolArgs struct {
 //   - Non-zero exit → append "[exit code: N]".
 //   - If the above leaves the output empty, return "(no output)".
 func (h *Host) ShellTool() tools.Def {
+	return h.buildShellTool("exec")
+}
+
+// BashAliasTool returns a `Bash`-named alias of the exec tool, dispatching to
+// the same handler. Useful for prompts and skills authored against Claude
+// Code's tool naming. Register it explicitly via reg.Register(h.BashAliasTool()).
+func (h *Host) BashAliasTool() tools.Def {
+	return h.buildShellTool("Bash")
+}
+
+func (h *Host) buildShellTool(name string) tools.Def {
 	return tools.Def{
-		Name:        "exec",
+		Name:        name,
 		Description: shellToolDescription,
 		Parameters: map[string]any{
 			"type": "object",

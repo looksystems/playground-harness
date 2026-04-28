@@ -133,6 +133,27 @@ const addTool = defineTool({
 agent.registerTool(addTool);
 ```
 
+## Exec Tool
+
+When `HasShell` is mixed in alongside `UsesTools`, an `exec` tool is auto-registered on the agent — the LLM can call it with `{ command: "..." }` to run any virtual-shell command. The handler returns a flat string: `stdout` + optional `[stderr] ...` + optional `[exit code: N]`, or `(no output)` if all three are empty.
+
+```typescript
+const agent = new StandardAgent({ model: "anthropic/claude-sonnet-4-6" });
+agent.initHasShell();
+// 'exec' is already in agent.tools
+
+const result = await agent.executeTool("exec", { command: "ls /work" });
+```
+
+Opt out at init time with `agent.initHasShell({ registerTool: false })`. For Claude-Code-portable prompts, register a `Bash`-named alias of the same handler:
+
+```typescript
+agent.registerBashAlias();  // Bash and exec both work, same handler
+await agent.executeTool("Bash", { command: "echo hello" });
+```
+
+See the [Exec Tool guide](exec-tool.md) for the full surface (parameter shape, output format, hooks, divergences from Claude Code).
+
 ## File Tools
 
 `registerFileTools(agent)` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They delegate to `agent.shell.fs`, so they automatically follow whichever `FilesystemDriver` is active (builtin / bashkit / OpenShell).

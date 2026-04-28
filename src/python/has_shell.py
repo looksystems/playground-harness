@@ -49,7 +49,7 @@ class HasShell:
         if not hasattr(self, "_shell"):
             self.__init_has_shell__()
 
-    def _register_shell_tool(self) -> None:
+    def _build_shell_tool(self, name: str = "exec") -> "ToolDef":
         from src.python.uses_tools import ToolDef
 
         async def exec_command(args: dict[str, Any]) -> str:
@@ -63,8 +63,8 @@ class HasShell:
                 parts.append(f"[exit code: {result.exit_code}]")
             return "".join(parts) or "(no output)"
 
-        tool = ToolDef(
-            name="exec",
+        return ToolDef(
+            name=name,
             description=(
                 "Execute a bash command in the virtual filesystem. "
                 "Commands: ls, cat, grep, find, head, tail, wc, sort, uniq, "
@@ -89,7 +89,18 @@ class HasShell:
                 "required": ["command"],
             },
         )
-        self.register_tool(tool)
+
+    def _register_shell_tool(self) -> None:
+        self.register_tool(self._build_shell_tool("exec"))
+
+    def register_bash_alias(self) -> Self:
+        """Register a `Bash`-named alias of the exec tool.
+
+        Useful for prompts and skills authored against Claude Code's tool
+        naming. The alias dispatches to the same handler as `exec`.
+        """
+        self.register_tool(self._build_shell_tool("Bash"))
+        return self
 
     @property
     def shell(self) -> ShellDriver:

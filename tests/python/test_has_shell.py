@@ -81,6 +81,24 @@ class TestHasShellWithTools:
         result = asyncio.run(tool_def.function({"command": "cat /test.txt"}))
         assert "hello" in result
 
+    def test_register_bash_alias_adds_Bash_tool(self):
+        obj = ShellWithTools()
+        _ = obj.shell  # trigger init
+        assert "Bash" not in obj.tools
+        obj.register_bash_alias()
+        assert "Bash" in obj.tools
+        # exec stays registered
+        assert "exec" in obj.tools
+
+    def test_bash_alias_dispatches_same_handler(self):
+        obj = ShellWithTools()
+        obj.fs.write("/file.txt", "hello\n")
+        obj.register_bash_alias()
+        out_exec = asyncio.run(obj.tools["exec"].function({"command": "cat /file.txt"}))
+        out_bash = asyncio.run(obj.tools["Bash"].function({"command": "cat /file.txt"}))
+        assert out_exec == out_bash
+        assert "hello" in out_bash
+
 
 class TestShellHooks:
     @pytest.mark.asyncio

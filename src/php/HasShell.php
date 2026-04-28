@@ -60,11 +60,11 @@ trait HasShell
         }
     }
 
-    private function registerShellTool(): void
+    private function buildShellTool(string $name = 'exec'): ToolDef
     {
         $self = $this;
-        $tool = ToolDef::make(
-            name: 'exec',
+        return ToolDef::make(
+            name: $name,
             description: 'Execute a bash command in the virtual filesystem. '
                 . 'Supports: ls, cat, grep, find, head, tail, wc, sort, uniq, '
                 . 'cut, sed, jq, tree, cp, rm, mkdir, touch, tee, cd, pwd, tr, echo, stat, '
@@ -101,7 +101,23 @@ trait HasShell
                 return implode('', $parts) ?: '(no output)';
             },
         );
-        $this->registerTool($tool);
+    }
+
+    private function registerShellTool(): void
+    {
+        $this->registerTool($this->buildShellTool('exec'));
+    }
+
+    /**
+     * Register a `Bash`-named alias of the exec tool.
+     *
+     * Useful for prompts and skills authored against Claude Code's tool
+     * naming. The alias dispatches to the same handler as `exec`.
+     */
+    public function registerBashAlias(): static
+    {
+        $this->registerTool($this->buildShellTool('Bash'));
+        return $this;
     }
 
     public function shell(): ShellDriverInterface

@@ -192,6 +192,31 @@ class HasShellTest extends TestCase
         $this->assertSame('(no output)', $decoded);
     }
 
+    public function testRegisterBashAliasAddsBashTool(): void
+    {
+        $obj = new ShellWithTools();
+        $obj->initHasShell();
+
+        $this->assertArrayNotHasKey('Bash', $obj->getTools());
+        $obj->registerBashAlias();
+        $tools = $obj->getTools();
+        $this->assertArrayHasKey('Bash', $tools);
+        $this->assertArrayHasKey('exec', $tools); // exec stays
+    }
+
+    public function testBashAliasDispatchesSameHandler(): void
+    {
+        $obj = new ShellWithTools();
+        $obj->initHasShell();
+        $obj->fs()->write('/file.txt', "hello\n");
+        $obj->registerBashAlias();
+
+        $execOut = $obj->executeTool('exec', ['command' => 'cat /file.txt']);
+        $bashOut = $obj->executeTool('Bash', ['command' => 'cat /file.txt']);
+        $this->assertSame($execOut, $bashOut);
+        $this->assertStringContainsString('hello', json_decode($bashOut, true));
+    }
+
     public function testShellCallHook(): void
     {
         $obj = new HookShellAgent();

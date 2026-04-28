@@ -130,6 +130,24 @@ describe("HasShell", () => {
     expect(agent.tools.has("exec")).toBe(false);
   });
 
+  it("registerBashAlias adds a Bash-named tool sharing the exec handler", () => {
+    const agent = new ToolShellAgent();
+    agent.initHasShell();
+    agent.fs.write("/greet.txt", "hello");
+
+    expect(agent.tools.has("Bash")).toBe(false);
+    agent.registerBashAlias();
+    expect(agent.tools.has("Bash")).toBe(true);
+    expect(agent.tools.has("exec")).toBe(true); // exec stays
+
+    const exec = agent.tools.get("exec")!;
+    const bash = agent.tools.get("Bash")!;
+    const execOut = exec.execute({ command: "cat /greet.txt" });
+    const bashOut = bash.execute({ command: "cat /greet.txt" });
+    expect(bashOut).toBe(execOut);
+    expect(bashOut).toBe("hello");
+  });
+
   it("does not auto-register when UsesTools is absent", () => {
     const agent = new ShellAgent();
     agent.initHasShell();
