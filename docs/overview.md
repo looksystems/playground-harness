@@ -44,11 +44,11 @@ Async/await throughout. Uses [litellm](https://github.com/BerriAI/litellm) for L
 
 ### TypeScript
 
-Function-based mixins applied to a base class. Uses the OpenAI SDK for LLM calls. Streaming is handled through `createChannel()` primitives.
+Function-based mixins applied to a base class. Pluggable `LlmClient` interface with native OpenAI ([`openai`](https://github.com/openai/openai-node)) and Anthropic ([`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript)) adapters in `src/typescript/llm/`. Streaming is handled through `createChannel()` primitives.
 
 ### PHP
 
-Native PHP traits for composition. Uses the [`openai-php/client`](https://github.com/openai-php/client) SDK for LLM calls with iterator-based streaming. Inline event streaming uses PHP Generators.
+Native PHP traits for composition. Pluggable `ClientInterface` with native OpenAI ([`openai-php/client`](https://github.com/openai-php/client)) and Anthropic ([`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php)) adapters in `src/php/Llm/`. LLM streaming consumes the SDK iterator; inline event streaming uses PHP Generators.
 
 ### Go
 

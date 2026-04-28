@@ -74,27 +74,36 @@ const agent = new MyAgent({ model: "gpt-4" });
 
 ## LLM Providers
 
-The TypeScript harness uses the [`openai`](https://github.com/openai/openai-node) SDK directly. Out of the box that means OpenAI native; for Anthropic, OpenRouter, litellm-proxy, or anything else with an OpenAI-compatible endpoint, supply `baseURL` (an OpenAI SDK option that passes through via constructor rest params):
+The TypeScript harness uses a pluggable `LlmClient` interface (in `src/typescript/llm/client.ts`). Two adapters ship in-tree:
+
+- **`OpenAIClient`** (`src/typescript/llm/openai.ts`) — backed by the [`openai`](https://github.com/openai/openai-node) SDK. Default. Reaches OpenAI native and any OpenAI-compatible endpoint via `baseURL`.
+- **`AnthropicClient`** (`src/typescript/llm/anthropic.ts`) — backed by the official [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript). Reaches Anthropic's native Messages API. Translates the harness's OpenAI-shaped messages, tool definitions, and tool-call deltas in both directions.
+
+Pick a provider with `provider:` (default `"openai"`) or inject a pre-built client via `client:`:
 
 ```typescript
 import { StandardAgent } from "./standard-agent.js";
+import { AnthropicClient } from "./llm/anthropic.js";
 
 // OpenAI default
-const agent = new StandardAgent({
-  model: "gpt-4o",
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const agent = new StandardAgent({ model: "gpt-4o", apiKey: process.env.OPENAI_API_KEY });
 
-// OpenAI-compatible endpoint targeting Anthropic
+// Anthropic native via the explicit provider switch
 const agent = new StandardAgent({
   model: "claude-sonnet-4-6",
+  provider: "anthropic",
   apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: "https://api.anthropic.com/v1/",
   temperature: 0.2,
+});
+
+// Inject a pre-built client (e.g. with a custom fetch for tests)
+const agent = new StandardAgent({
+  model: "claude-sonnet-4-6",
+  client: new AnthropicClient({ apiKey: "...", fetch: myFetch }),
 });
 ```
 
-`maxRetries` (default 2) controls exponential back-off; `stream: true` (default) uses the SDK's streaming iterator. Any unrecognised constructor option flows through to `client.chat.completions.create(...)` via `extraOptions`. There is no native Anthropic adapter — use an OpenAI-compatible proxy (Anthropic ships one). See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+The agent loop, hooks, middleware, tool dispatch, and event parsing are unchanged regardless of provider — only the `_call_llm` site differs. `maxRetries` (default 2) wraps the LlmClient call in exponential back-off; `stream: true` (default) consumes SSE chunks and accumulates content + tool-call deltas into the same `{role, content, tool_calls}` shape the non-streaming path produces. See the [LLM Providers guide](llm-providers.md) for the full provider matrix.
 
 ## Lifecycle Hooks
 

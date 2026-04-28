@@ -4,19 +4,25 @@ declare(strict_types=1);
 
 namespace AgentHarness;
 
-use OpenAI;
+use AgentHarness\Llm\AnthropicClient;
+use AgentHarness\Llm\ClientInterface as LlmClient;
+use AgentHarness\Llm\OpenAIClient;
 use OpenAI\Contracts\ClientContract;
-use OpenAI\Responses\Chat\CreateResponse;
-use OpenAI\Responses\Chat\CreateStreamedResponse;
-use OpenAI\Responses\StreamResponse;
 
 class BaseAgent
 {
-    protected ClientContract $client;
+    protected LlmClient $llmClient;
 
     /**
-     * @param array<string, mixed> $completionParams Extra options forwarded to chat()->create()
-     * @param ClientContract|null  $client           Inject a pre-built client (e.g. ClientFake) for tests
+     * @param array<string, mixed>          $completionParams Extra options forwarded to the chosen client
+     * @param ClientContract|null           $client           Inject a pre-built openai-php SDK client
+     *                                                         (e.g. OpenAI\Testing\ClientFake) for tests.
+     *                                                         Wrapped in an OpenAIClient internally.
+     * @param string|null                   $provider         "openai" (default) | "anthropic". Controls
+     *                                                         which default client is built when neither
+     *                                                         $llmClient nor $client is supplied.
+     * @param LlmClient|null                $llmClient        Inject a pre-built ClientInterface
+     *                                                         implementation. Wins over $client and $provider.
      */
     public function __construct(
         public readonly string $model,
@@ -28,22 +34,27 @@ class BaseAgent
         public readonly ?string $apiKey = null,
         public readonly array $completionParams = [],
         ?ClientContract $client = null,
+        public readonly ?string $provider = null,
+        ?LlmClient $llmClient = null,
     ) {
-        $this->client = $client ?? $this->buildClient();
+        if ($llmClient !== null) {
+            $this->llmClient = $llmClient;
+        } elseif ($client !== null) {
+            // Backward compat: a raw OpenAI SDK client is wrapped in OpenAIClient.
+            $this->llmClient = new OpenAIClient(client: $client);
+        } else {
+            $this->llmClient = $this->buildDefaultClient();
+        }
     }
 
-    private function buildClient(): ClientContract
+    private function buildDefaultClient(): LlmClient
     {
-        $factory = OpenAI::factory();
-
-        $key = $this->apiKey ?? getenv('OPENAI_API_KEY') ?: 'sk-placeholder';
-        $factory = $factory->withApiKey($key);
-
-        if ($this->baseUrl !== null) {
-            $factory = $factory->withBaseUri($this->baseUrl);
-        }
-
-        return $factory->make();
+        $provider = $this->provider ?? 'openai';
+        return match ($provider) {
+            'anthropic' => new AnthropicClient(apiKey: $this->apiKey, baseUrl: $this->baseUrl),
+            'openai' => new OpenAIClient(apiKey: $this->apiKey, baseUrl: $this->baseUrl),
+            default => throw new \InvalidArgumentException("Unknown provider: {$provider}"),
+        };
     }
 
     /**
@@ -78,117 +89,28 @@ class BaseAgent
     }
 
     /**
-     * Consume a streaming chat response, accumulating content and tool calls
-     * into the same `{role, content, tool_calls}` shape produced by the
-     * non-streaming path. Mirrors Python's `_handle_stream` and TS's
-     * `_handle_stream` so downstream code is identical regardless of mode.
+     * Call the LLM via the bound ClientInterface, with retry logic.
      *
-     * @param StreamResponse<CreateStreamedResponse> $stream
+     * @param array<int, array<string, mixed>> $messages
+     * @param array<int, array<string, mixed>>|null $toolsSchema
      * @return array{role: string, content: ?string, tool_calls: ?array}
-     */
-    protected function handleStream(StreamResponse $stream): array
-    {
-        $contentParts = [];
-        $toolCallsByIndex = [];
-
-        /** @var CreateStreamedResponse $chunk */
-        foreach ($stream as $chunk) {
-            $choice = $chunk->choices[0] ?? null;
-            if ($choice === null) {
-                continue;
-            }
-            $delta = $choice->delta;
-
-            if ($delta->content !== null && $delta->content !== '') {
-                $contentParts[] = $delta->content;
-            }
-
-            foreach ($delta->toolCalls as $tc) {
-                $idx = $tc->index ?? count($toolCallsByIndex);
-                if (!isset($toolCallsByIndex[$idx])) {
-                    $toolCallsByIndex[$idx] = [
-                        'id' => $tc->id ?? '',
-                        'type' => 'function',
-                        'function' => ['name' => '', 'arguments' => ''],
-                    ];
-                }
-                $entry = &$toolCallsByIndex[$idx];
-                if ($tc->id !== null && $tc->id !== '') {
-                    $entry['id'] = $tc->id;
-                }
-                if ($tc->function->name !== null && $tc->function->name !== '') {
-                    $entry['function']['name'] .= $tc->function->name;
-                }
-                if ($tc->function->arguments !== '') {
-                    $entry['function']['arguments'] .= $tc->function->arguments;
-                }
-                unset($entry);
-            }
-        }
-
-        $message = ['role' => 'assistant', 'content' => null, 'tool_calls' => null];
-        if ($contentParts !== []) {
-            $message['content'] = implode('', $contentParts);
-        }
-        if ($toolCallsByIndex !== []) {
-            ksort($toolCallsByIndex);
-            $message['tool_calls'] = array_values($toolCallsByIndex);
-        }
-        return $message;
-    }
-
-    /**
-     * Convert a non-streaming CreateResponse into the harness's array shape.
-     *
-     * @return array{role: string, content: ?string, tool_calls: ?array}
-     */
-    protected function handleResponseObject(CreateResponse $response): array
-    {
-        $msg = $response->choices[0]->message ?? null;
-        $content = $msg?->content;
-        $toolCalls = null;
-        if ($msg !== null && $msg->toolCalls !== []) {
-            $toolCalls = array_map(static function ($tc): array {
-                return [
-                    'id' => $tc->id,
-                    'type' => $tc->type,
-                    'function' => [
-                        'name' => $tc->function->name,
-                        'arguments' => $tc->function->arguments,
-                    ],
-                ];
-            }, $msg->toolCalls);
-        }
-        return ['role' => 'assistant', 'content' => $content, 'tool_calls' => $toolCalls];
-    }
-
-    /**
-     * Call the LLM with retry logic.
-     *
-     * @param array $messages
-     * @param array|null $toolsSchema
-     * @return array The assistant message
      */
     protected function callLlm(array $messages, ?array $toolsSchema = null): array
     {
-        $params = array_merge([
+        $request = [
             'model' => $this->model,
             'messages' => $messages,
-        ], $this->completionParams);
-
+            'stream' => $this->stream,
+            'completionParams' => $this->completionParams,
+        ];
         if ($toolsSchema !== null && count($toolsSchema) > 0) {
-            $params['tools'] = $toolsSchema;
+            $request['tools'] = $toolsSchema;
         }
 
         $lastException = null;
         for ($attempt = 0; $attempt <= $this->maxRetries; $attempt++) {
             try {
-                if ($this->stream) {
-                    $stream = $this->client->chat()->createStreamed($params);
-                    return $this->handleStream($stream);
-                }
-                $response = $this->client->chat()->create($params);
-                return $this->handleResponseObject($response);
+                return $this->llmClient->callLlm($request);
             } catch (\Throwable $e) {
                 $lastException = $e;
                 if ($attempt < $this->maxRetries) {

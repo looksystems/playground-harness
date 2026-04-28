@@ -30,8 +30,8 @@ The goal is that the simplest use case requires the least code, and complexity s
 Each language implementation follows that language's conventions rather than being a mechanical port from a reference implementation. The APIs feel native to their ecosystem.
 
 - **Python:** async/await throughout, litellm for multi-provider LLM support, dataclasses for data structures, `Protocol` for interfaces.
-- **TypeScript:** OpenAI SDK for LLM calls, interfaces for contracts, function-based mixins (idiomatic TS pattern), `Promise.allSettled` for concurrent hook dispatch.
-- **PHP:** [`openai-php/client`](https://github.com/openai-php/client) SDK for LLM calls (with iterator-based streaming consumer), native traits for composition, string-backed enums, synchronous execution model, Generators for inline-event streaming.
+- **TypeScript:** Pluggable `LlmClient` interface with native OpenAI ([`openai`](https://github.com/openai/openai-node)) and Anthropic ([`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript)) adapters in `src/typescript/llm/`, function-based mixins (idiomatic TS pattern), `Promise.allSettled` for concurrent hook dispatch.
+- **PHP:** Pluggable `ClientInterface` with native OpenAI ([`openai-php/client`](https://github.com/openai-php/client)) and Anthropic ([`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php)) adapters in `src/php/Llm/`, native traits for composition, string-backed enums, synchronous execution model, Generators for inline-event streaming.
 - **Go:** Thin in-tree `llm.Client` interface with native OpenAI and Anthropic adapters in `src/go/llm/{openai,anthropic}/`, channels for streaming with producer-owned lifecycle and terminal-event errors, `context.Context` first-arg on every public I/O boundary, `sync.RWMutex` on every registry, goroutines + `sync.WaitGroup` for concurrent hook dispatch, `gopkg.in/yaml.v3` for event parsing.
 
 Shared concepts (the agent loop, hook lifecycle, middleware pipeline, event system) are consistent across languages, but the expression of those concepts respects each language's idioms and ecosystem.

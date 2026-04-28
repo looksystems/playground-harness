@@ -1,4 +1,6 @@
-import OpenAI from "openai";
+import { OpenAIClient } from "./llm/openai.js";
+import { AnthropicClient } from "./llm/anthropic.js";
+import type { AssistantMessage, ChatMessage, LlmClient, ToolSchema } from "./llm/client.js";
 
 export interface RunContext {
   agent: BaseAgent;
@@ -6,13 +8,22 @@ export interface RunContext {
   metadata: Record<string, any>;
 }
 
+export type Provider = "openai" | "anthropic";
+
 export interface AgentOptions {
   model: string;
   system?: string | null;
   maxTurns?: number;
   maxRetries?: number;
   stream?: boolean;
+  /** Pre-built LlmClient. Wins over `provider` if both supplied. */
+  client?: LlmClient;
+  /** Build a default client for this provider. Default: "openai". */
+  provider?: Provider;
+  /** Forwarded to the default client (OpenAI or Anthropic) when `client` is omitted. */
   apiKey?: string;
+  /** Forwarded to the default client when `client` is omitted. */
+  baseURL?: string;
   [key: string]: any;
 }
 
@@ -22,7 +33,7 @@ export class BaseAgent {
   maxTurns: number;
   maxRetries: number;
   stream: boolean;
-  client: OpenAI;
+  llmClient: LlmClient;
   extraOptions: Record<string, any>;
 
   constructor(options: AgentOptions) {
@@ -31,8 +42,8 @@ export class BaseAgent {
     this.maxTurns = options.maxTurns ?? 20;
     this.maxRetries = options.maxRetries ?? 2;
     this.stream = options.stream ?? true;
-    this.client = new OpenAI({ apiKey: options.apiKey ?? "sk-placeholder" });
-    const { model, system, maxTurns, maxRetries, stream, apiKey, ...rest } = options;
+    this.llmClient = options.client ?? buildDefaultClient(options);
+    const { model, system, maxTurns, maxRetries, stream, apiKey, baseURL, client, provider, ...rest } = options;
     this.extraOptions = rest;
   }
 
@@ -44,76 +55,20 @@ export class BaseAgent {
 
   async _on_run_end(context: RunContext): Promise<void> {}
 
-  async _handle_stream(stream: AsyncIterable<any>): Promise<Record<string, any>> {
-    const contentParts: string[] = [];
-    const toolCallsMap: Map<number, Record<string, any>> = new Map();
-
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta;
-      if (!delta) continue;
-      if (delta.content) {
-        contentParts.push(delta.content);
-      }
-      if (delta.tool_calls) {
-        for (const tc of delta.tool_calls) {
-          const idx = tc.index;
-          if (!toolCallsMap.has(idx)) {
-            toolCallsMap.set(idx, {
-              id: tc.id || "",
-              type: "function",
-              function: { name: "", arguments: "" },
-            });
-          }
-          const entry = toolCallsMap.get(idx)!;
-          if (tc.id) entry.id = tc.id;
-          if (tc.function) {
-            if (tc.function.name) entry.function.name += tc.function.name;
-            if (tc.function.arguments) entry.function.arguments += tc.function.arguments;
-          }
-        }
-      }
-    }
-
-    const message: Record<string, any> = { role: "assistant" };
-    if (contentParts.length > 0) {
-      message.content = contentParts.join("");
-    }
-    if (toolCallsMap.size > 0) {
-      const sorted = [...toolCallsMap.keys()].sort((a, b) => a - b);
-      message.tool_calls = sorted.map((i) => toolCallsMap.get(i)!);
-    }
-    return message;
-  }
-
   async _handle_response(response: Record<string, any>, context: RunContext): Promise<Record<string, any> | null> {
     return response;
   }
 
-  async _call_llm(messages: Record<string, any>[], toolsSchema?: Record<string, any>[]): Promise<Record<string, any>> {
+  async _call_llm(messages: ChatMessage[], toolsSchema?: ToolSchema[]): Promise<AssistantMessage> {
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        const params: any = {
+        return await this.llmClient.callLlm({
           model: this.model,
           messages,
-          ...this.extraOptions,
-        };
-        if (toolsSchema && toolsSchema.length > 0) {
-          params.tools = toolsSchema;
-        }
-
-        if (this.stream) {
-          params.stream = true;
-          const resp = await this.client.chat.completions.create(params);
-          return await this._handle_stream(resp as any);
-        } else {
-          const resp: any = await this.client.chat.completions.create(params);
-          const msg = resp.choices[0].message;
-          return {
-            role: "assistant",
-            content: msg.content,
-            tool_calls: msg.tool_calls ?? null,
-          };
-        }
+          tools: toolsSchema && toolsSchema.length > 0 ? toolsSchema : undefined,
+          stream: this.stream,
+          extraOptions: this.extraOptions,
+        });
       } catch (e: any) {
         if (attempt < this.maxRetries) {
           const delay = Math.min(2 ** attempt, 10);
@@ -144,11 +99,11 @@ export class BaseAgent {
 
     for (let turn = 0; turn < this.maxTurns; turn++) {
       context.turn = turn;
-      const assistantMsg = await this._call_llm(messages);
-      const result = await this._handle_response(assistantMsg, context);
+      const assistantMsg = await this._call_llm(messages as ChatMessage[]);
+      const result = await this._handle_response(assistantMsg as any, context);
 
       if (result === null) {
-        messages.push(assistantMsg);
+        messages.push(assistantMsg as any);
         const content = assistantMsg.content ?? "";
         await this._on_run_end(context);
         return content;
@@ -164,4 +119,12 @@ export class BaseAgent {
     await this._on_run_end(context);
     return messages[messages.length - 1]?.content ?? "";
   }
+}
+
+function buildDefaultClient(options: AgentOptions): LlmClient {
+  const provider = options.provider ?? "openai";
+  if (provider === "anthropic") {
+    return new AnthropicClient({ apiKey: options.apiKey, baseURL: options.baseURL });
+  }
+  return new OpenAIClient({ apiKey: options.apiKey, baseURL: options.baseURL });
 }

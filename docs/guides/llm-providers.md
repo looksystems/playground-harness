@@ -9,11 +9,11 @@ The agent loop itself (turns, tool dispatch, message history) is identical acros
 | Language | Implementation | Native providers | OpenAI-compatible endpoints | Streaming |
 |----------|---------------|------------------|------------------------------|-----------|
 | **Python** | `litellm` SDK | ~100+ providers via prefix routing (Anthropic, OpenAI, Bedrock, Azure, Gemini, Mistral, Ollama, Together, Groq, …) | Yes (any OpenAI-compatible URL via `api_base` kwarg) | Yes (litellm async iterator) |
-| **TypeScript** | `openai` SDK | OpenAI native | Yes (any OpenAI-compatible URL via the SDK's `baseURL` option) | Yes (SSE via SDK) |
-| **PHP** | [`openai-php/client`](https://github.com/openai-php/client) SDK | OpenAI native | Yes (configurable `baseUrl`) | Yes (SDK iterates SSE chunks; consumer accumulates content + tool-call deltas) |
-| **Go** | Native `llm.Client` interface | Anthropic Messages API + OpenAI Chat Completions, in `src/go/llm/{anthropic,openai}/` subpackages | Use the OpenAI adapter with `WithBaseURL(...)` | Yes (channel-based) |
+| **TypeScript** | Pluggable `LlmClient` interface; ships native `OpenAIClient` (`openai` SDK) and `AnthropicClient` (`@anthropic-ai/sdk`) | OpenAI Chat Completions + Anthropic Messages API | Yes (configurable `baseURL` on either adapter) | Yes (SSE via SDK; consumer accumulates content + tool-call deltas) |
+| **PHP** | Pluggable `ClientInterface`; ships native `OpenAIClient` ([`openai-php/client`](https://github.com/openai-php/client)) and `AnthropicClient` ([`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php)) | OpenAI Chat Completions + Anthropic Messages API | Yes (configurable `baseUrl` on either adapter) | Yes (SDK iterates SSE chunks; consumer accumulates content + tool-call deltas) |
+| **Go** | Pluggable `llm.Client` interface | Anthropic Messages API + OpenAI Chat Completions, in `src/go/llm/{anthropic,openai}/` subpackages | Use the OpenAI adapter with `WithBaseURL(...)` | Yes (channel-based) |
 
-**Key asymmetry:** only Python and Go can talk to Anthropic's native Messages API. TypeScript and PHP can reach Anthropic only through an OpenAI-compatible proxy (Anthropic's own [OpenAI-compatible endpoint](https://docs.anthropic.com/en/api/openai-sdk), litellm-proxy, OpenRouter, etc.). If you want first-class Anthropic support without a proxy, use the Python or Go harness.
+All four implementations now reach Anthropic's native Messages API (extended thinking, prompt-caching breakpoints, native tool-use blocks). TypeScript and PHP gained first-class adapters in 2026-04 (see [ADR 0033 revision history](../adr/0033-llm-provider-abstraction.md)); previously they could only reach Anthropic through OpenAI-compatible proxies.
 
 ## Model identifiers
 
@@ -22,8 +22,8 @@ Model strings are passed verbatim to the underlying SDK and use whichever conven
 | Language | Model string format | Examples |
 |----------|--------------------|----------|
 | Python (litellm) | `provider/model-id` (provider prefix routes the call) | `anthropic/claude-sonnet-4-6`, `openai/gpt-4o`, `bedrock/anthropic.claude-3-5-sonnet-v2`, `gemini/gemini-2.5-pro`, `ollama/llama3` |
-| TypeScript (OpenAI SDK) | OpenAI model ID (or whatever the configured base URL accepts) | `gpt-4o`, `gpt-4o-mini`, `claude-sonnet-4-6` (when `baseURL` points at an Anthropic-compatible endpoint) |
-| PHP | OpenAI model ID (or whatever the configured baseUrl accepts) | `gpt-4o`, `claude-sonnet-4-6` (when `baseUrl` points at an Anthropic-compatible endpoint) |
+| TypeScript | Whatever the chosen `LlmClient` expects | `gpt-4o` (OpenAIClient default), `claude-sonnet-4-6` (AnthropicClient via `provider: "anthropic"`) |
+| PHP | Whatever the chosen `ClientInterface` expects | `gpt-4o` (OpenAIClient default), `claude-sonnet-4-6` (AnthropicClient via `->provider('anthropic')`) |
 | Go | Whatever the chosen provider adapter expects | `claude-sonnet-4-6` (Anthropic adapter), `gpt-4o` (OpenAI adapter) — adapter is selected at agent construction, not via the model string |
 
 ## Configuring the provider
@@ -50,46 +50,72 @@ The `model`, `messages`, `tools`, `stream` keys are constructed by the harness a
 
 ### TypeScript
 
-Configuration flows through the OpenAI SDK. The `apiKey` option is exposed directly; other SDK options pass through via the agent constructor's rest params. To target a non-OpenAI endpoint, supply `baseURL` (an OpenAI SDK option) as a constructor option:
+The TS harness uses a pluggable `LlmClient` interface. Two implementations ship in-tree: `OpenAIClient` (backed by `openai`) and `AnthropicClient` (backed by `@anthropic-ai/sdk`). Pick one with `provider:` (default `"openai"`), or inject a pre-built client via `client:`:
 
 ```typescript
 import { StandardAgent } from "./standard-agent.js";
 
-// OpenAI default
+// OpenAI default — apiKey from env if not specified
 const agent = new StandardAgent({
   model: "gpt-4o",
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// OpenAI-compatible endpoint (e.g. Anthropic, OpenRouter, litellm-proxy)
+// Anthropic native (uses @anthropic-ai/sdk) — apiKey from env if not specified
 const agent = new StandardAgent({
   model: "claude-sonnet-4-6",
+  provider: "anthropic",
   apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: "https://api.anthropic.com/v1/",
-  // any other OpenAI SDK options pass through (temperature, top_p, ...)
+  // pass-through extras (temperature, max_tokens, …) flow through extraOptions
   temperature: 0.2,
+});
+
+// Inject a pre-built client (e.g. with a custom fetch for tests)
+import { AnthropicClient } from "./llm/anthropic.js";
+const agent = new StandardAgent({
+  model: "claude-sonnet-4-6",
+  client: new AnthropicClient({ apiKey: "...", fetch: myFetch }),
+});
+
+// OpenAI-compatible proxy (Anthropic shim, OpenRouter, litellm-proxy) still works via baseURL
+const agent = new StandardAgent({
+  model: "claude-sonnet-4-6",
+  baseURL: "https://api.anthropic.com/v1/",
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 ```
 
 ### PHP
 
-Configuration is on the `BaseAgent` constructor (or via `AgentBuilder`'s fluent setters). The harness builds an `OpenAI\Client` via `OpenAI::factory()->withApiKey(...)->withBaseUri(...)->make()`. If `apiKey` is omitted, the constructor falls back to `getenv('OPENAI_API_KEY')`. `baseUrl` overrides the default `https://api.openai.com/v1`. Extra completion parameters go through `completionParams`.
+The PHP harness uses a pluggable `ClientInterface` (in `AgentHarness\Llm\`). Two implementations ship in-tree: `OpenAIClient` (backed by [`openai-php/client`](https://github.com/openai-php/client)) and `AnthropicClient` (backed by [`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php)). Pick one with `->provider()` (default `'openai'`), or inject a pre-built client via `->llmClient()`:
 
 ```php
 use AgentHarness\AgentBuilder;
+use AgentHarness\Llm\AnthropicClient;
 
-// OpenAI default (apiKey from env if not specified)
-$agent = (new AgentBuilder('gpt-4o'))->build();
+// OpenAI default — apiKey from env if not specified
+$agent = (new AgentBuilder('gpt-4o'))->create();
 
-// OpenAI-compatible endpoint (Anthropic, OpenRouter, litellm-proxy, …)
+// Anthropic native (uses anthropic-ai/sdk)
+$agent = (new AgentBuilder('claude-sonnet-4-6'))
+    ->provider('anthropic')
+    ->apiKey(getenv('ANTHROPIC_API_KEY'))
+    ->completionParams(['temperature' => 0.2, 'maxTokens' => 2048])
+    ->create();
+
+// Inject a pre-built client (e.g. with a fake SDK transport for tests)
+$agent = (new AgentBuilder('claude-sonnet-4-6'))
+    ->llmClient(new AnthropicClient(apiKey: 'sk-ant-...'))
+    ->create();
+
+// OpenAI-compatible proxy (Anthropic shim, OpenRouter, litellm-proxy) still works via baseUrl
 $agent = (new AgentBuilder('claude-sonnet-4-6'))
     ->baseUrl('https://api.anthropic.com/v1')
     ->apiKey(getenv('ANTHROPIC_API_KEY'))
-    ->completionParams(['temperature' => 0.2, 'max_tokens' => 2048])
-    ->build();
+    ->create();
 ```
 
-The `model`, `messages`, `tools` keys are managed by the harness and merged on top of `completionParams`. Tests can inject a pre-built client (e.g. `OpenAI\Testing\ClientFake`) via the `client:` constructor parameter on `BaseAgent` to avoid network calls.
+The `model`, `messages`, `tools` keys are managed by the harness and merged on top of `completionParams`. Tests can inject either a `OpenAI\Testing\ClientFake` (via the legacy `client:` constructor parameter, internally wrapped in OpenAIClient) or any `ClientInterface` (via the new `llmClient:` parameter or builder method).
 
 ### Go
 
@@ -175,20 +201,19 @@ Go's retry is a separate decorator wrapping any `llm.Client`, so you can stack i
 
 | Feature | Python | TypeScript | PHP | Go |
 |---------|--------|------------|-----|----|
-| Implementation | litellm SDK | openai SDK | openai-php SDK | `llm.Client` interface + adapters |
-| Native Anthropic | ✓ (litellm) | ✗ (use OpenAI-compatible proxy) | ✗ (use OpenAI-compatible proxy) | ✓ (`llm/anthropic`) |
-| Native OpenAI | ✓ (litellm) | ✓ | ✓ | ✓ (`llm/openai`) |
-| Other native providers | ✓ (~100 via litellm) | ✗ | ✗ | Implement the `llm.Client` interface |
-| Streaming | Async iterator | Async iterator | Iterator (`StreamResponse`) | Channel |
-| API key source | Env var (litellm convention) | `apiKey` option | `apiKey` constructor arg | `WithAPIKey` option (or env var fallback) |
-| Custom base URL | `api_base` kwarg | OpenAI SDK `baseURL` | `baseUrl` constructor arg | `WithBaseURL` option |
-| Extra request params | `**litellm_kwargs` | Constructor rest params | `completionParams` | `Request.Extra` map |
-| Pluggable client | No (litellm is the abstraction) | No (openai SDK is the abstraction) | Yes — `client:` constructor parameter accepts any `OpenAI\Contracts\ClientContract` (e.g. `ClientFake` for tests) | Yes — implement `llm.Client` |
+| Implementation | litellm SDK | `LlmClient` interface + openai/anthropic SDK adapters | `ClientInterface` + openai-php/anthropic-ai SDK adapters | `llm.Client` interface + openai/anthropic adapters |
+| Native Anthropic | ✓ (litellm) | ✓ (`AnthropicClient` using `@anthropic-ai/sdk`) | ✓ (`AnthropicClient` using `anthropic-ai/sdk`) | ✓ (`llm/anthropic`) |
+| Native OpenAI | ✓ (litellm) | ✓ (`OpenAIClient` using `openai`) | ✓ (`OpenAIClient` using `openai-php/client`) | ✓ (`llm/openai`) |
+| Other native providers | ✓ (~100 via litellm) | Implement `LlmClient` | Implement `ClientInterface` | Implement `llm.Client` |
+| Streaming | Async iterator | Async iterator (per adapter) | Iterator (`StreamResponse` / SDK SSE stream) | Channel |
+| API key source | Env var (litellm convention) | `apiKey` option per adapter (env var fallback) | `apiKey` constructor arg per adapter (env var fallback) | `WithAPIKey` option (env var fallback) |
+| Custom base URL | `api_base` kwarg | `baseURL` option per adapter | `baseUrl` constructor arg per adapter | `WithBaseURL` option |
+| Extra request params | `**litellm_kwargs` | Constructor rest params → `extraOptions` | `completionParams` constructor arg | `Request.Extra` map |
+| Pluggable client | No (litellm is the abstraction) | Yes — implement `LlmClient` or pass `client:` to BaseAgent | Yes — implement `ClientInterface` or pass `llmClient:` to BaseAgent | Yes — implement `llm.Client` |
 
 ## Known limitations
 
-- **TypeScript and PHP have no native Anthropic adapter.** The OpenAI-compatible path works for most use cases but loses access to features the Messages API exposes that the OpenAI surface does not (e.g. extended thinking, prompt caching breakpoints).
-- **Tool-call shape on the wire is OpenAI-flavoured.** All four implementations build OpenAI-format `tools` payloads. Providers that don't speak that shape need a translation layer (the Go Anthropic adapter does it for you; litellm does it transparently for Python; TS and PHP rely on the proxy).
+- **Tool-call shape on the wire is OpenAI-flavoured.** All four implementations build OpenAI-format `tools` payloads as the harness's lingua franca. Adapters targeting non-OpenAI APIs (Anthropic in TS/PHP/Go, anything in Python via litellm) translate transparently. Providers added via custom `LlmClient`/`ClientInterface`/`llm.Client` implementations must do the same translation.
 - **No retry for in-stream errors** in Python / TS / PHP. The retry loop covers the initial connection only; once chunks start flowing, a mid-stream failure surfaces as an exception and is not retried. Go's terminal `Chunk{Done: true, Err: err}` is delivered to the consumer, who can choose to retry; the decorator does not auto-restart streams.
 
 ## See also

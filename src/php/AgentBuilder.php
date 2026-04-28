@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AgentHarness;
 
+use AgentHarness\Llm\ClientInterface as LlmClient;
+
 class AgentBuilder
 {
     private string $model;
@@ -14,6 +16,8 @@ class AgentBuilder
     private ?string $baseUrl = null;
     private ?string $apiKey = null;
     private array $completionParams = [];
+    private ?string $provider = null;
+    private ?LlmClient $llmClient = null;
     /** @var list<ToolDef> */
     private array $tools = [];
     /** @var list<Middleware> */
@@ -73,6 +77,20 @@ class AgentBuilder
     public function completionParams(array $params): static
     {
         $this->completionParams = $params;
+        return $this;
+    }
+
+    /** Pick the default LLM provider — "openai" (default) or "anthropic". */
+    public function provider(string $name): static
+    {
+        $this->provider = $name;
+        return $this;
+    }
+
+    /** Inject a pre-built ClientInterface implementation. Wins over provider()/apiKey()/baseUrl(). */
+    public function llmClient(LlmClient $client): static
+    {
+        $this->llmClient = $client;
         return $this;
     }
 
@@ -155,6 +173,8 @@ class AgentBuilder
             baseUrl: $this->baseUrl,
             apiKey: $this->apiKey,
             completionParams: $this->completionParams,
+            provider: $this->provider,
+            llmClient: $this->llmClient,
         );
 
         foreach ($this->tools as $tool) {

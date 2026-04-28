@@ -5,6 +5,8 @@ import type { StructuredEvent } from "./event-stream-parser.js";
 import type { Skill } from "./has-skills.js";
 import type { CmdHandler } from "./shell.js";
 import type { HasShellOptions } from "./has-shell.js";
+import type { LlmClient } from "./llm/client.js";
+import type { Provider } from "./base-agent.js";
 
 export class AgentBuilder {
   private _model: string;
@@ -12,6 +14,10 @@ export class AgentBuilder {
   private _maxTurns: number = 20;
   private _maxRetries: number = 2;
   private _stream: boolean = true;
+  private _provider?: Provider;
+  private _apiKey?: string;
+  private _baseURL?: string;
+  private _llmClient?: LlmClient;
   private _tools: ToolDef[] = [];
   private _middleware: Middleware[] = [];
   private _hooks: Array<[HookEvent, (...args: any[]) => any]> = [];
@@ -42,6 +48,28 @@ export class AgentBuilder {
 
   stream(enabled: boolean = true): this {
     this._stream = enabled;
+    return this;
+  }
+
+  /** Pick the default LLM provider — "openai" (default) or "anthropic". */
+  provider(name: Provider): this {
+    this._provider = name;
+    return this;
+  }
+
+  apiKey(key: string): this {
+    this._apiKey = key;
+    return this;
+  }
+
+  baseURL(url: string): this {
+    this._baseURL = url;
+    return this;
+  }
+
+  /** Inject a pre-built LlmClient. Wins over .provider()/.apiKey()/.baseURL(). */
+  client(c: LlmClient): this {
+    this._llmClient = c;
     return this;
   }
 
@@ -110,6 +138,10 @@ export class AgentBuilder {
       maxTurns: this._maxTurns,
       maxRetries: this._maxRetries,
       stream: this._stream,
+      provider: this._provider,
+      apiKey: this._apiKey,
+      baseURL: this._baseURL,
+      client: this._llmClient,
     });
 
     for (const td of this._tools) {

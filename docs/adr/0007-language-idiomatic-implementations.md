@@ -32,35 +32,43 @@ implementations differ along several dimensions:
 |-----------|--------|------------|-----|----|
 | **Async** | `async`/`await` throughout (`asyncio`) | `async`/`await` (Promises) | Synchronous (no async runtime) | Goroutines + channels; `context.Context` for cancellation |
 | **Composition** | Multiple inheritance over mixin classes | Function-based mixins (class-extending higher-order functions) | Native `trait`s | Anonymous struct embedding (see ADR 0031) |
-| **LLM client** | [`litellm`](https://docs.litellm.ai/) — universal SDK; provider routed by model-prefix string (`anthropic/...`, `openai/...`, `bedrock/...`, …) | [`openai`](https://github.com/openai/openai-node) SDK; OpenAI native, OpenAI-compatible endpoints via `baseURL` | [`openai-php/client`](https://github.com/openai-php/client) SDK; OpenAI native, OpenAI-compatible endpoints via `baseUrl` | Typed `llm.Client` interface with native adapters in `src/go/llm/{anthropic,openai}/` |
+| **LLM client** | [`litellm`](https://docs.litellm.ai/) — universal SDK; provider routed by model-prefix string (`anthropic/...`, `openai/...`, `bedrock/...`, …) | Pluggable `LlmClient` interface with in-tree `OpenAIClient` ([`openai`](https://github.com/openai/openai-node)) and `AnthropicClient` ([`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript)) | Pluggable `ClientInterface` with in-tree `OpenAIClient` ([`openai-php/client`](https://github.com/openai-php/client)) and `AnthropicClient` ([`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php)) | Typed `llm.Client` interface with native adapters in `src/go/llm/{anthropic,openai}/` |
 | **Streaming consumer** | `async for chunk in stream` | `for await (const chunk of stream)` | `foreach ($stream as $chunk)` over `StreamResponse` | `<-chan llm.Chunk` (producer-owned, terminal-error chunk) |
 | **Inline-event streaming** | `asyncio.Queue` → `AsyncIterator` | `createChannel()` → `AsyncIterable` | `Generator` (pull-based; see ADR 0010) | `<-chan` (same channel as LLM streaming) |
 
 ## LLM-provider consequences (revised 2026-04-28)
 
-The LLM-client choice has the largest reach of any decision in this ADR. The
-four implementations diverge meaningfully in what they can talk to out of the
-box, and the asymmetry is a deliberate consequence of choosing the most
-idiomatic option per language at the time of writing:
+The LLM-client choice has the largest reach of any decision in this ADR. As
+of 2026-04-28, all four implementations reach Anthropic's native Messages
+API and OpenAI's Chat Completions API; the per-language differences are
+about *how* the provider abstraction is shaped, not *which* providers are
+reachable:
 
-- **Python** reaches ~100+ providers natively because litellm is the
-  multi-provider abstraction. There is no in-tree "provider adapter" concept —
-  litellm *is* the abstraction layer.
-- **TypeScript** and **PHP** are OpenAI-native by default and reach other
-  providers (Anthropic, OpenRouter, litellm-proxy, …) through OpenAI-compatible
-  endpoints by setting `baseURL` / `baseUrl`. There is no native Anthropic
-  Messages API adapter in either language; using one means losing access to
-  Messages-specific features (extended thinking, prompt-caching breakpoints,
-  native tool-use blocks).
-- **Go** has a typed `llm.Client` interface (`Stream` + `Complete`) with
-  native adapters for both OpenAI Chat Completions *and* Anthropic Messages.
-  The Anthropic adapter translates the OpenAI-shaped tool definitions the
-  harness emits into Anthropic's native tool-use blocks transparently, so
-  swapping providers requires no agent-level changes.
+- **Python** uses litellm as the multi-provider abstraction layer; there is
+  no in-tree "provider adapter" concept and adding a new provider means
+  using whichever model-prefix litellm already supports (~100+).
+- **TypeScript** and **PHP** each define a small pluggable interface
+  (`LlmClient` and `ClientInterface` respectively) with two in-tree
+  adapters: an OpenAI one (using the official ecosystem SDK) and an
+  Anthropic one (using the official first-party SDK). Each Anthropic
+  adapter handles the OpenAI ↔ Messages-API translation transparently
+  (system extraction, role mapping, tool-call delta accumulation).
+  Adding a third provider means implementing the interface.
+- **Go** has the same shape — a typed `llm.Client` interface
+  (`Stream` + `Complete`) with native OpenAI and Anthropic adapters.
+  This was the prototype the TS / PHP interface designs were lifted
+  from.
 
-The cross-language guide [`docs/guides/llm-providers.md`](../guides/llm-providers.md)
-documents this matrix in detail and notes which features are available where.
-ADR 0033 captures the underlying provider-abstraction strategy.
+Provider selection in TS / PHP is explicit (`provider: "openai" |
+"anthropic"`, default openai), preserving backward compatibility with
+agents that don't specify a provider. Auto-routing by model prefix
+(litellm-style) is deliberately not done — see ADR 0033 for the
+rationale.
+
+The cross-language guide
+[`docs/guides/llm-providers.md`](../guides/llm-providers.md) documents
+the matrix in detail. ADR 0033 captures the provider-abstraction
+strategy and revision history.
 
 ## Consequences
 
@@ -70,7 +78,7 @@ ADR 0033 captures the underlying provider-abstraction strategy.
 - Each implementation leverages the strengths of its runtime and ecosystem.
 - Easier to maintain by language specialists who do not need to understand
   cross-language constraints.
-- The provider-abstraction asymmetry is documented honestly rather than papered
+- The provider-abstraction shape is captured per-language rather than papered
   over with a lowest-common-denominator surface.
 
 **Negative**
@@ -79,7 +87,5 @@ ADR 0033 captures the underlying provider-abstraction strategy.
   testing strategies for each language.
 - Behavioural parity must be verified through integration tests rather than
   structural comparison.
-- Native Anthropic support is only available in Python and Go today;
-  TypeScript and PHP need an OpenAI-compatible Anthropic proxy. Closing this
-  gap would require writing native Anthropic adapters in both languages — a
-  larger undertaking deliberately deferred.
+- The Anthropic translation logic now lives in three places (Go, TS, PHP);
+  drift is mitigated by parity tests but not eliminated.

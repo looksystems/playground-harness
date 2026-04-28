@@ -85,23 +85,34 @@ class MyAgent extends BaseAgent
 
 ## LLM Providers
 
-The PHP harness uses the [`openai-php/client`](https://github.com/openai-php/client) SDK. `BaseAgent` builds an `OpenAI\Client` via `OpenAI::factory()->withApiKey(...)->withBaseUri(...)->make()`. `apiKey` falls back to `getenv('OPENAI_API_KEY')` if omitted; `baseUrl` overrides the default OpenAI host; `completionParams` are merged into the request body.
+The PHP harness uses a pluggable `ClientInterface` (in `src/php/Llm/ClientInterface.php`). Two adapters ship in-tree:
+
+- **`OpenAIClient`** (`src/php/Llm/OpenAIClient.php`) — backed by [`openai-php/client`](https://github.com/openai-php/client). Default. Reaches OpenAI native and any OpenAI-compatible endpoint via `baseUrl`.
+- **`AnthropicClient`** (`src/php/Llm/AnthropicClient.php`) — backed by the official [`anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-php). Reaches Anthropic's native Messages API. Translates the harness's OpenAI-shaped messages, tool definitions, and tool-call deltas in both directions.
+
+Pick a provider with `->provider()` (default `'openai'`) or inject a pre-built client via `->llmClient()`:
 
 ```php
 use AgentHarness\AgentBuilder;
+use AgentHarness\Llm\AnthropicClient;
 
-// OpenAI default (apiKey from env)
-$agent = (new AgentBuilder('gpt-4o'))->build();
+// OpenAI default — apiKey from env if not specified
+$agent = (new AgentBuilder('gpt-4o'))->create();
 
-// OpenAI-compatible endpoint (Anthropic, OpenRouter, litellm-proxy, …)
+// Anthropic native via the explicit provider switch
 $agent = (new AgentBuilder('claude-sonnet-4-6'))
-    ->baseUrl('https://api.anthropic.com/v1')
+    ->provider('anthropic')
     ->apiKey(getenv('ANTHROPIC_API_KEY'))
-    ->completionParams(['temperature' => 0.2, 'max_tokens' => 2048])
-    ->build();
+    ->completionParams(['temperature' => 0.2, 'maxTokens' => 2048])
+    ->create();
+
+// Inject a pre-built client (e.g. with a fake SDK transport for tests)
+$agent = (new AgentBuilder('claude-sonnet-4-6'))
+    ->llmClient(new AnthropicClient(apiKey: 'sk-ant-...'))
+    ->create();
 ```
 
-`maxRetries` (default 2) controls exponential back-off. `stream: true` (default) iterates the SDK's `StreamResponse`, accumulating content and tool-call deltas into the same `{role, content, tool_calls}` shape as the non-streaming path — downstream code (handlers, hooks, middleware) is identical regardless of mode. Tests can inject a pre-built client (e.g. `OpenAI\Testing\ClientFake`) via `BaseAgent`'s `client:` constructor parameter. There is no native Anthropic adapter — use an OpenAI-compatible proxy. See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+The agent loop, hooks, middleware, tool dispatch, and event parsing are unchanged regardless of provider — only `BaseAgent::callLlm()` differs. `maxRetries` (default 2) wraps the ClientInterface call in exponential back-off. `stream: true` (default) consumes SSE chunks and accumulates content + tool-call deltas into the same `{role, content, tool_calls}` shape as the non-streaming path. The legacy `client:` constructor parameter (raw `OpenAI\Contracts\ClientContract`) still works for backward compat — internally wrapped in `OpenAIClient`. See the [LLM Providers guide](llm-providers.md) for the full provider matrix.
 
 ## Lifecycle Hooks
 
