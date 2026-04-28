@@ -30,6 +30,7 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 | [0026](0026-shell-driver-contracts.md) | Shell and Filesystem Driver Contracts |
 | [0027](0027-bashkit-driver-integration.md) | Bashkit Driver Integration |
 | [0028](0028-shell-redirect-pipeline-completeness.md) | Shell Redirect and Pipeline Completeness |
+| [0032](0032-file-tools.md) | File Tools (Read, Write, Edit, Glob, Grep) |
 
 ### Events and Streaming
 

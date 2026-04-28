@@ -19,7 +19,7 @@ export interface FilesystemDriver {
   isDir(path: string): boolean;
   listdir(path?: string): string[];
   find(root?: string, pattern?: string): string[];
-  stat(path: string): { path: string; type: string; size?: number };
+  stat(path: string): { path: string; type: string; size?: number; mtime?: number };
   clone(): FilesystemDriver;
 }
 
@@ -39,7 +39,7 @@ export class BuiltinFilesystemDriver implements FilesystemDriver {
   isDir(path: string): boolean { return this._vfs._isDir(path); }
   listdir(path: string = "/"): string[] { return this._vfs.listdir(path); }
   find(root: string = "/", pattern: string = "*"): string[] { return this._vfs.find(root, pattern); }
-  stat(path: string): { path: string; type: string; size?: number } { return this._vfs.stat(path); }
+  stat(path: string): { path: string; type: string; size?: number; mtime?: number } { return this._vfs.stat(path); }
   clone(): BuiltinFilesystemDriver { return new BuiltinFilesystemDriver(this._vfs.clone()); }
 
   get vfs(): VirtualFS { return this._vfs; }

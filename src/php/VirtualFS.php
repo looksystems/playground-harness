@@ -15,6 +15,11 @@ class VirtualFS
     /** @var array<string, \Closure> */
     private array $lazy = [];
 
+    /** @var array<string, int> */
+    private array $mtimes = [];
+
+    private int $mtimeCounter = 0;
+
     /**
      * @param array<string, string>|null $files
      */
@@ -25,6 +30,12 @@ class VirtualFS
                 $this->write($path, $content);
             }
         }
+    }
+
+    private function stamp(string $path): void
+    {
+        $this->mtimeCounter++;
+        $this->mtimes[$path] = $this->mtimeCounter;
     }
 
     private static function norm(string $path): string
@@ -54,6 +65,7 @@ class VirtualFS
     {
         $path = self::norm($path);
         $this->files[$path] = $content;
+        $this->stamp($path);
     }
 
     /**
@@ -63,6 +75,7 @@ class VirtualFS
     {
         $path = self::norm($path);
         $this->lazy[$path] = $provider;
+        $this->stamp($path);
     }
 
     public function read(string $path): string
@@ -108,6 +121,7 @@ class VirtualFS
         } else {
             throw new \RuntimeException("{$path}: No such file");
         }
+        unset($this->mtimes[$path]);
     }
 
     /**
@@ -188,7 +202,12 @@ class VirtualFS
         }
 
         $content = $this->read($path);
-        return ['path' => $path, 'type' => 'file', 'size' => strlen($content)];
+        return [
+            'path' => $path,
+            'type' => 'file',
+            'size' => strlen($content),
+            'mtime' => $this->mtimes[$path] ?? 0,
+        ];
     }
 
     /**
@@ -199,6 +218,8 @@ class VirtualFS
         $new = new self();
         $new->files = $this->files; // strings are copy-on-write in PHP
         $new->lazy = $this->lazy;   // closures are immutable references
+        $new->mtimes = $this->mtimes;
+        $new->mtimeCounter = $this->mtimeCounter;
         return $new;
     }
 }

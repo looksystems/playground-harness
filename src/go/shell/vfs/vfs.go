@@ -23,32 +23,45 @@ func norm(p string) string {
 
 // FileInfo holds stat-style metadata for a VFS entry.
 type FileInfo struct {
-	Path string
-	Type string // "file" | "dir"
-	Size int64
+	Path  string
+	Type  string // "file" | "dir"
+	Size  int64
+	Mtime int64
 }
 
 // VirtualFS is a dict-backed in-memory filesystem.
 // Paths are normalised to absolute, forward-slash form.
 // All exported methods are concurrent-safe.
 type VirtualFS struct {
-	mu    sync.RWMutex
-	files map[string][]byte
-	lazy  map[string]func() ([]byte, error)
+	mu       sync.RWMutex
+	files    map[string][]byte
+	lazy     map[string]func() ([]byte, error)
+	mtimes   map[string]int64
+	mtimeSeq int64
 }
 
 // New constructs an empty VFS. The optional files map seeds initial content.
 func New(files map[string][]byte) *VirtualFS {
 	v := &VirtualFS{
-		files: make(map[string][]byte),
-		lazy:  make(map[string]func() ([]byte, error)),
+		files:  make(map[string][]byte),
+		lazy:   make(map[string]func() ([]byte, error)),
+		mtimes: make(map[string]int64),
 	}
 	for p, content := range files {
 		cp := make([]byte, len(content))
 		copy(cp, content)
-		v.files[norm(p)] = cp
+		np := norm(p)
+		v.files[np] = cp
+		v.mtimeSeq++
+		v.mtimes[np] = v.mtimeSeq
 	}
 	return v
+}
+
+// stampLocked records a fresh mtime for path. Caller must hold the write lock.
+func (v *VirtualFS) stampLocked(path string) {
+	v.mtimeSeq++
+	v.mtimes[path] = v.mtimeSeq
 }
 
 // Write stores content at path (overwriting any existing file or lazy entry).
@@ -60,6 +73,7 @@ func (v *VirtualFS) Write(p string, content []byte) error {
 	defer v.mu.Unlock()
 	delete(v.lazy, p) // remove lazy if present
 	v.files[p] = cp
+	v.stampLocked(p)
 	return nil
 }
 
@@ -76,6 +90,7 @@ func (v *VirtualFS) WriteLazy(p string, provider func() ([]byte, error)) error {
 	defer v.mu.Unlock()
 	delete(v.files, p) // remove real file if present
 	v.lazy[p] = provider
+	v.stampLocked(p)
 	return nil
 }
 
@@ -153,6 +168,7 @@ func (v *VirtualFS) Remove(p string) error {
 	defer v.mu.Unlock()
 	delete(v.files, p)
 	delete(v.lazy, p)
+	delete(v.mtimes, p)
 	return nil
 }
 
@@ -283,7 +299,10 @@ func (v *VirtualFS) Stat(p string) (FileInfo, error) {
 		if err != nil {
 			return FileInfo{}, err
 		}
-		return FileInfo{Path: p, Type: "file", Size: int64(len(data))}, nil
+		v.mu.RLock()
+		mtime := v.mtimes[p]
+		v.mu.RUnlock()
+		return FileInfo{Path: p, Type: "file", Size: int64(len(data)), Mtime: mtime}, nil
 	}
 	return FileInfo{}, fs.ErrNotExist
 }
@@ -304,8 +323,14 @@ func (v *VirtualFS) Clone() *VirtualFS {
 	for k, fn := range v.lazy {
 		newLazy[k] = fn
 	}
+	newMtimes := make(map[string]int64, len(v.mtimes))
+	for k, mt := range v.mtimes {
+		newMtimes[k] = mt
+	}
 	return &VirtualFS{
-		files: newFiles,
-		lazy:  newLazy,
+		files:    newFiles,
+		lazy:     newLazy,
+		mtimes:   newMtimes,
+		mtimeSeq: v.mtimeSeq,
 	}
 }

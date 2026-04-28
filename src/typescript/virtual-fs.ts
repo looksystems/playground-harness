@@ -6,6 +6,8 @@
 export class VirtualFS {
   private _files: Map<string, string> = new Map();
   private _lazy: Map<string, () => string> = new Map();
+  private _mtimes: Map<string, number> = new Map();
+  private _mtimeCounter: number = 0;
 
   constructor(files?: Record<string, string>) {
     if (files) {
@@ -13,6 +15,11 @@ export class VirtualFS {
         this.write(path, content);
       }
     }
+  }
+
+  private _stamp(path: string): void {
+    this._mtimeCounter += 1;
+    this._mtimes.set(path, this._mtimeCounter);
   }
 
   static _norm(path: string): string {
@@ -35,13 +42,14 @@ export class VirtualFS {
   write(path: string, content: string): void {
     path = VirtualFS._norm(path);
     this._files.set(path, content);
-    // Remove any lazy provider if we're writing directly
     this._lazy.delete(path);
+    this._stamp(path);
   }
 
   writeLazy(path: string, provider: () => string): void {
     path = VirtualFS._norm(path);
     this._lazy.set(path, provider);
+    this._stamp(path);
   }
 
   read(path: string): string {
@@ -73,6 +81,7 @@ export class VirtualFS {
     } else {
       throw new Error(`${path}: No such file`);
     }
+    this._mtimes.delete(path);
   }
 
   private _allPaths(): Set<string> {
@@ -133,14 +142,14 @@ export class VirtualFS {
     return new RegExp(regexStr);
   }
 
-  stat(path: string): { path: string; type: string; size?: number } {
+  stat(path: string): { path: string; type: string; size?: number; mtime?: number } {
     path = VirtualFS._norm(path);
     if (this._isDir(path)) {
       return { path, type: "directory" };
     }
     const content = this.read(path);
     const size = new TextEncoder().encode(content).length;
-    return { path, type: "file", size };
+    return { path, type: "file", size, mtime: this._mtimes.get(path) ?? 0 };
   }
 
   clone(): VirtualFS {
@@ -151,6 +160,10 @@ export class VirtualFS {
     for (const [k, v] of this._lazy) {
       newFs._lazy.set(k, v);
     }
+    for (const [k, v] of this._mtimes) {
+      newFs._mtimes.set(k, v);
+    }
+    newFs._mtimeCounter = this._mtimeCounter;
     return newFs;
   }
 }

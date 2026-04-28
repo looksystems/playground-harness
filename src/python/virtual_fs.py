@@ -13,11 +13,16 @@ class VirtualFS:
 
     def __init__(self, files: dict[str, str | bytes] | None = None):
         self._files: dict[str, str | bytes] = {}
-        # Lazy file providers — called on first read, result cached
         self._lazy: dict[str, Callable[[], str | bytes]] = {}
+        self._mtimes: dict[str, int] = {}
+        self._mtime_counter: int = 0
         if files:
             for path, content in files.items():
                 self.write(self._norm(path), content)
+
+    def _stamp(self, path: str) -> None:
+        self._mtime_counter += 1
+        self._mtimes[path] = self._mtime_counter
 
     @staticmethod
     def _norm(path: str) -> str:
@@ -30,11 +35,13 @@ class VirtualFS:
     def write(self, path: str, content: str | bytes) -> None:
         path = self._norm(path)
         self._files[path] = content
+        self._stamp(path)
 
     def write_lazy(self, path: str, provider: Callable[[], str | bytes]) -> None:
         """Register a lazy file — provider called on first read, then cached."""
         path = self._norm(path)
         self._lazy[path] = provider
+        self._stamp(path)
 
     def read(self, path: str) -> str | bytes:
         path = self._norm(path)
@@ -61,6 +68,7 @@ class VirtualFS:
             del self._lazy[path]
         else:
             raise FileNotFoundError(f"{path}: No such file")
+        self._mtimes.pop(path, None)
 
     def _all_paths(self) -> set[str]:
         return set(self._files.keys()) | set(self._lazy.keys())
@@ -99,11 +107,13 @@ class VirtualFS:
             return {"path": path, "type": "directory"}
         content = self.read(path)
         size = len(content.encode("utf-8") if isinstance(content, str) else content)
-        return {"path": path, "type": "file", "size": size}
+        return {"path": path, "type": "file", "size": size, "mtime": self._mtimes.get(path, 0)}
 
     def clone(self) -> VirtualFS:
         """Create an independent copy of this filesystem."""
         new = VirtualFS()
         new._files = copy.deepcopy(self._files)
         new._lazy = dict(self._lazy)
+        new._mtimes = dict(self._mtimes)
+        new._mtime_counter = self._mtime_counter
         return new
