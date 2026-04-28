@@ -185,6 +185,44 @@ Programmer errors (wrong function shape, unsupported types) panic at constructio
 
 Register via `Builder.Tool(d)` or `a.Registry.Register(d)` after Build.
 
+### File Tools
+
+`filetools.RegisterAll` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They take a `vfs.FilesystemDriver` directly, plus a `cwdFn func() string` consulted on every Glob/Grep call (so the tools follow the agent's current working directory).
+
+```go
+import (
+    "agent-harness/go/filetools"
+    "agent-harness/go/tools"
+)
+
+reg := tools.New()
+fs  := agent.Host.Driver.FS()
+cwd := func() string { return agent.Host.Driver.CWD() }
+
+ft := filetools.RegisterAll(reg, fs, cwd)                            // default: read-gate off
+ft  = filetools.RegisterAll(reg, fs, cwd, filetools.EnforceReadGate()) // opt-in: Edit requires prior Read
+```
+
+`ft.HasRead(path)` reports whether a path has been Read in this session — useful in tests when the read-gate is enabled. Once registered, the tools appear in `reg.List()` like any other `tools.Def` and are dispatched by `reg.Execute(ctx, name, raw)`.
+
+Examples:
+
+```go
+_ = fs.WriteString("/work/main.go", "package main\nfunc main() {}")
+filetools.RegisterAll(reg, fs, cwd)
+
+out, _ := reg.Execute(ctx, "Read", []byte(`{"file_path": "/work/main.go"}`))
+// "     1\tpackage main\n     2\tfunc main() {}"
+
+out, _ = reg.Execute(ctx, "Glob", []byte(`{"pattern": "**/*.go", "path": "/work"}`))
+// []string{"/work/main.go"}
+
+out, _ = reg.Execute(ctx, "Grep", []byte(`{"pattern": "^func", "output_mode": "files_with_matches"}`))
+// []string{"/work/main.go"}
+```
+
+See the [File Tools guide](file-tools.md) for the full parameter and behaviour reference.
+
 ### Events
 
 Events are YAML blocks the LLM emits inline in its response. Define an `events.EventType` and register it on the builder:

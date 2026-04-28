@@ -141,6 +141,37 @@ agent.register_tool(add)
 
 The JSON schema for tool parameters is auto-generated from type hints. Both sync and async tool functions are supported.
 
+## File Tools
+
+`register_file_tools(agent)` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They delegate to `agent.shell.fs`, so they automatically follow whichever `FilesystemDriver` is active (builtin / bashkit / OpenShell).
+
+```python
+from src.python.file_tools import register_file_tools
+
+state = register_file_tools(agent)                       # default: read-gate off
+state = register_file_tools(agent, enforce_read_gate=True)  # opt-in: Edit requires prior Read
+```
+
+The returned `_FileToolsState` exposes `state.read_set` for inspection in tests. Once registered, the tools appear in `agent.tools` like any other `ToolDef` and are dispatched by `agent._execute_tool(name, args)`.
+
+Examples:
+
+```python
+agent.fs.write("/work/main.py", "import os\nprint(os.getcwd())")
+register_file_tools(agent)
+
+await agent._execute_tool("Read", {"file_path": "/work/main.py"})
+# '     1\timport os\n     2\tprint(os.getcwd())'
+
+await agent._execute_tool("Glob", {"pattern": "**/*.py", "path": "/work"})
+# '["/work/main.py"]'
+
+await agent._execute_tool("Grep", {"pattern": "^print", "output_mode": "files_with_matches"})
+# '["/work/main.py"]'
+```
+
+See the [File Tools guide](file-tools.md) for the full parameter and behaviour reference.
+
 ## Events
 
 Register event types, configure defaults, and build prompts for the LLM.

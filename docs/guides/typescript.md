@@ -133,6 +133,37 @@ const addTool = defineTool({
 agent.registerTool(addTool);
 ```
 
+## File Tools
+
+`registerFileTools(agent)` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They delegate to `agent.shell.fs`, so they automatically follow whichever `FilesystemDriver` is active (builtin / bashkit / OpenShell).
+
+```typescript
+import { registerFileTools } from "./file-tools.js";
+
+const state = registerFileTools(agent);                              // default: read-gate off
+const state = registerFileTools(agent, { enforceReadGate: true });   // opt-in: Edit requires prior Read
+```
+
+The returned `FileToolsState` exposes `state.readSet` for inspection in tests. Once registered, the tools appear in `agent.tools` like any other `ToolDef` and are dispatched by `agent.executeTool(name, args)`.
+
+Examples:
+
+```typescript
+agent.fs.write("/work/index.ts", 'import { foo } from "./foo";\nconsole.log(foo());');
+registerFileTools(agent);
+
+await agent.executeTool("Read", { file_path: "/work/index.ts" });
+// '"     1\\timport { foo } from \\"./foo\\";\\n     2\\tconsole.log(foo());"'
+
+await agent.executeTool("Glob", { pattern: "**/*.ts", path: "/work" });
+// '["/work/index.ts"]'
+
+await agent.executeTool("Grep", { pattern: "^console", output_mode: "files_with_matches" });
+// '["/work/index.ts"]'
+```
+
+See the [File Tools guide](file-tools.md) for the full parameter and behaviour reference.
+
 ## Events
 
 Define structured event types and register them on an agent that includes the `EmitsEvents` mixin.

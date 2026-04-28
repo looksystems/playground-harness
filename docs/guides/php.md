@@ -157,6 +157,37 @@ $addTool = ToolDef::make(
 $agent->registerTool($addTool);
 ```
 
+## File Tools
+
+`FileTools::registerAll($agent)` adds five built-in tools — **Read**, **Write**, **Edit**, **Glob**, **Grep** — that mirror Claude Code's surface (parameter names and observable behaviour). They delegate to `$agent->shell()->fs()`, so they automatically follow whichever `FilesystemDriver` is active (builtin / bashkit / OpenShell).
+
+```php
+use AgentHarness\FileTools;
+
+$ft = FileTools::registerAll($agent);                              // default: read-gate off
+$ft = FileTools::registerAll($agent, enforceReadGate: true);       // opt-in: Edit requires prior Read
+```
+
+The returned `FileTools` instance exposes `$ft->readSet()` for inspection in tests. Once registered, the tools appear in `$agent->getTools()` like any other `ToolDef` and are dispatched by `$agent->executeTool($name, $args)`.
+
+Examples:
+
+```php
+$agent->fs()->write('/work/index.php', "<?php\necho 'hi';");
+FileTools::registerAll($agent);
+
+$agent->executeTool('Read', ['file_path' => '/work/index.php']);
+// '"     1\\t<?php\\n     2\\techo \\u0027hi\\u0027;"'
+
+$agent->executeTool('Glob', ['pattern' => '**/*.php', 'path' => '/work']);
+// '["/work/index.php"]'
+
+$agent->executeTool('Grep', ['pattern' => '^echo', 'output_mode' => 'files_with_matches']);
+// '["/work/index.php"]'
+```
+
+See the [File Tools guide](file-tools.md) for the full parameter and behaviour reference.
+
 ## Events
 
 Register custom event types to structure agent output:
