@@ -10,7 +10,7 @@ The agent loop itself (turns, tool dispatch, message history) is identical acros
 |----------|---------------|------------------|------------------------------|-----------|
 | **Python** | `litellm` SDK | ~100+ providers via prefix routing (Anthropic, OpenAI, Bedrock, Azure, Gemini, Mistral, Ollama, Together, Groq, …) | Yes (any OpenAI-compatible URL via `api_base` kwarg) | Yes (litellm async iterator) |
 | **TypeScript** | `openai` SDK | OpenAI native | Yes (any OpenAI-compatible URL via the SDK's `baseURL` option) | Yes (SSE via SDK) |
-| **PHP** | Hand-rolled HTTP via Guzzle | OpenAI Chat Completions wire format | Yes (configurable `baseUrl`) | Limited — `stream: true` is sent but the response is parsed as JSON; works against non-streaming endpoints |
+| **PHP** | [`openai-php/client`](https://github.com/openai-php/client) SDK | OpenAI native | Yes (configurable `baseUrl`) | Yes (SDK iterates SSE chunks; consumer accumulates content + tool-call deltas) |
 | **Go** | Native `llm.Client` interface | Anthropic Messages API + OpenAI Chat Completions, in `src/go/llm/{anthropic,openai}/` subpackages | Use the OpenAI adapter with `WithBaseURL(...)` | Yes (channel-based) |
 
 **Key asymmetry:** only Python and Go can talk to Anthropic's native Messages API. TypeScript and PHP can reach Anthropic only through an OpenAI-compatible proxy (Anthropic's own [OpenAI-compatible endpoint](https://docs.anthropic.com/en/api/openai-sdk), litellm-proxy, OpenRouter, etc.). If you want first-class Anthropic support without a proxy, use the Python or Go harness.
@@ -73,17 +73,15 @@ const agent = new StandardAgent({
 
 ### PHP
 
-Configuration is on the `BaseAgent` constructor (or via `AgentBuilder`'s fluent setters). `baseUrl` defaults to `https://api.openai.com/v1`; `apiKey` is sent as a `Bearer` token. Extra completion parameters go through `completionParams`.
+Configuration is on the `BaseAgent` constructor (or via `AgentBuilder`'s fluent setters). The harness builds an `OpenAI\Client` via `OpenAI::factory()->withApiKey(...)->withBaseUri(...)->make()`. If `apiKey` is omitted, the constructor falls back to `getenv('OPENAI_API_KEY')`. `baseUrl` overrides the default `https://api.openai.com/v1`. Extra completion parameters go through `completionParams`.
 
 ```php
 use AgentHarness\AgentBuilder;
 
-// OpenAI default (apiKey from getenv if you wire it yourself)
-$agent = (new AgentBuilder('gpt-4o'))
-    ->apiKey(getenv('OPENAI_API_KEY'))
-    ->build();
+// OpenAI default (apiKey from env if not specified)
+$agent = (new AgentBuilder('gpt-4o'))->build();
 
-// OpenAI-compatible endpoint (e.g. Anthropic, OpenRouter)
+// OpenAI-compatible endpoint (Anthropic, OpenRouter, litellm-proxy, …)
 $agent = (new AgentBuilder('claude-sonnet-4-6'))
     ->baseUrl('https://api.anthropic.com/v1')
     ->apiKey(getenv('ANTHROPIC_API_KEY'))
@@ -91,7 +89,7 @@ $agent = (new AgentBuilder('claude-sonnet-4-6'))
     ->build();
 ```
 
-The `model`, `messages`, `tools`, `stream` keys in the request body are managed by the harness and merged on top of `completionParams`.
+The `model`, `messages`, `tools` keys are managed by the harness and merged on top of `completionParams`. Tests can inject a pre-built client (e.g. `OpenAI\Testing\ClientFake`) via the `client:` constructor parameter on `BaseAgent` to avoid network calls.
 
 ### Go
 
@@ -129,7 +127,7 @@ Streaming is enabled by default in Python, TypeScript, and Go. PHP currently set
 |----------|-------------|---------|
 | Python | `async for chunk in stream` (litellm async iterator) | On |
 | TypeScript | `for await (const chunk of stream)` (OpenAI SDK) | On |
-| PHP | (no streaming consumer wired) | On flag, but parsed non-streamed |
+| PHP | `foreach ($stream as $chunk)` over `StreamResponse<CreateStreamedResponse>` (openai-php SDK) | On |
 | Go | `<-chan llm.Chunk`, terminal `Chunk{Done: true, Err: err}` | Decided per provider, both adapters support it |
 
 Disable per agent:
@@ -177,19 +175,18 @@ Go's retry is a separate decorator wrapping any `llm.Client`, so you can stack i
 
 | Feature | Python | TypeScript | PHP | Go |
 |---------|--------|------------|-----|----|
-| Implementation | litellm SDK | openai SDK | Guzzle HTTP | `llm.Client` interface + adapters |
+| Implementation | litellm SDK | openai SDK | openai-php SDK | `llm.Client` interface + adapters |
 | Native Anthropic | ✓ (litellm) | ✗ (use OpenAI-compatible proxy) | ✗ (use OpenAI-compatible proxy) | ✓ (`llm/anthropic`) |
 | Native OpenAI | ✓ (litellm) | ✓ | ✓ | ✓ (`llm/openai`) |
 | Other native providers | ✓ (~100 via litellm) | ✗ | ✗ | Implement the `llm.Client` interface |
-| Streaming | Async iterator | Async iterator | Limited (see above) | Channel |
+| Streaming | Async iterator | Async iterator | Iterator (`StreamResponse`) | Channel |
 | API key source | Env var (litellm convention) | `apiKey` option | `apiKey` constructor arg | `WithAPIKey` option (or env var fallback) |
 | Custom base URL | `api_base` kwarg | OpenAI SDK `baseURL` | `baseUrl` constructor arg | `WithBaseURL` option |
 | Extra request params | `**litellm_kwargs` | Constructor rest params | `completionParams` | `Request.Extra` map |
-| Pluggable client | No (litellm is the abstraction) | No (openai SDK is the abstraction) | No (HTTP is the abstraction) | Yes — implement `llm.Client` |
+| Pluggable client | No (litellm is the abstraction) | No (openai SDK is the abstraction) | Yes — `client:` constructor parameter accepts any `OpenAI\Contracts\ClientContract` (e.g. `ClientFake` for tests) | Yes — implement `llm.Client` |
 
 ## Known limitations
 
-- **PHP streaming is not actually streamed.** The `stream: true` body parameter is sent but the response body is read in one shot and JSON-parsed. To use streaming you would need to add an SSE consumer; until then, prefer `stream: false` for non-streaming-tolerant endpoints.
 - **TypeScript and PHP have no native Anthropic adapter.** The OpenAI-compatible path works for most use cases but loses access to features the Messages API exposes that the OpenAI surface does not (e.g. extended thinking, prompt caching breakpoints).
 - **Tool-call shape on the wire is OpenAI-flavoured.** All four implementations build OpenAI-format `tools` payloads. Providers that don't speak that shape need a translation layer (the Go Anthropic adapter does it for you; litellm does it transparently for Python; TS and PHP rely on the proxy).
 - **No retry for in-stream errors** in Python / TS / PHP. The retry loop covers the initial connection only; once chunks start flowing, a mid-stream failure surfaces as an exception and is not retried. Go's terminal `Chunk{Done: true, Err: err}` is delivered to the consumer, who can choose to retry; the decorator does not auto-restart streams.

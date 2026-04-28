@@ -31,7 +31,7 @@ Each language implementation follows that language's conventions rather than bei
 
 - **Python:** async/await throughout, litellm for multi-provider LLM support, dataclasses for data structures, `Protocol` for interfaces.
 - **TypeScript:** OpenAI SDK for LLM calls, interfaces for contracts, function-based mixins (idiomatic TS pattern), `Promise.allSettled` for concurrent hook dispatch.
-- **PHP:** Guzzle HTTP for LLM calls, native traits for composition, string-backed enums, synchronous execution model, Generators for streaming.
+- **PHP:** [`openai-php/client`](https://github.com/openai-php/client) SDK for LLM calls (with iterator-based streaming consumer), native traits for composition, string-backed enums, synchronous execution model, Generators for inline-event streaming.
 - **Go:** Thin in-tree `llm.Client` interface with native OpenAI and Anthropic adapters in `src/go/llm/{openai,anthropic}/`, channels for streaming with producer-owned lifecycle and terminal-event errors, `context.Context` first-arg on every public I/O boundary, `sync.RWMutex` on every registry, goroutines + `sync.WaitGroup` for concurrent hook dispatch, `gopkg.in/yaml.v3` for event parsing.
 
 Shared concepts (the agent loop, hook lifecycle, middleware pipeline, event system) are consistent across languages, but the expression of those concepts respects each language's idioms and ecosystem.

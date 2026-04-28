@@ -10,7 +10,7 @@ The Python, TypeScript, PHP, and Go implementations of the agent harness share t
 | **Mixin Init Strategy** | Lazy init via `hasattr` + `__init_has_X__()` | Inline field initialization in anonymous class | PHP trait properties initialize on first use | Eager init in `NewAgent`; no init collision possible |
 | **Agent Composition** | `class StandardAgent(BaseAgent, HasMiddleware, HasHooks, UsesTools, EmitsEvents, HasShell, HasSkills): pass` | `const StandardAgent = HasSkills(HasShell(EmitsEvents(UsesTools(HasMiddleware(HasHooks(BaseAgent))))))` | `class StandardAgent extends BaseAgent { use HasHooks; use HasMiddleware; use UsesTools; use EmitsEvents; use HasShell; use HasSkills; }` | `Agent` embeds `*hooks.Hub`, `*tools.Registry`, `*middleware.Chain`; named fields for `*shell.Host`, `*events.Host`, `*skills.Manager` |
 | **Async Model** | `async`/`await` throughout, `asyncio` | `async`/`await`, Promises | Synchronous (no async runtime) | Goroutines + channels; `context.Context` for cancellation |
-| **LLM Client** | litellm (multi-provider) | OpenAI SDK | Guzzle HTTP (raw API calls) | OpenAI + Anthropic in-tree; pluggable `llm.Client` interface |
+| **LLM Client** | litellm (multi-provider) | OpenAI SDK | openai-php SDK (with iterator-based streaming) | OpenAI + Anthropic in-tree; pluggable `llm.Client` interface |
 | **YAML Parsing** | PyYAML (`yaml.safe_load`) | `yaml` npm package (`YAML.parse`) | Custom `parseSimpleYaml()` (zero dependencies) | `gopkg.in/yaml.v3` |
 | **Hook Dispatch** | Concurrent (`asyncio.gather` + `return_exceptions=True`) | Concurrent (`Promise.allSettled`) | Sequential (synchronous `foreach`) | Concurrent (goroutines + `sync.WaitGroup`; panics recovered per handler) |
 | **Streaming Primitive** | `asyncio.Queue` → `AsyncIterator` | `createChannel()` → `AsyncIterable` | `Generator` (pull-based) | `<-chan llm.Chunk` (producer-owned, closed exactly once) |
@@ -65,7 +65,7 @@ Python uses litellm, which provides a unified interface across multiple LLM prov
 
 TypeScript uses the OpenAI SDK directly. This gives idiomatic access to OpenAI's API (including streaming via `stream: true`) but ties the implementation to OpenAI-compatible endpoints.
 
-PHP uses Guzzle HTTP for raw API calls, constructing request bodies and parsing responses manually. This gives full control over the HTTP layer and avoids depending on a provider-specific SDK, but requires the implementation to handle request construction, error mapping, and response parsing itself.
+PHP uses the [`openai-php/client`](https://github.com/openai-php/client) SDK. Like the TypeScript path, this targets OpenAI-compatible endpoints; non-OpenAI providers (Anthropic, OpenRouter, etc.) are reachable through a compatible proxy by setting `baseUrl`. Streaming is consumed by iterating the SDK's `StreamResponse`, with content + tool-call deltas accumulated into the same shape as the non-streaming path. Tests can inject `OpenAI\Testing\ClientFake` via `BaseAgent`'s `client:` constructor parameter.
 
 ### 6. Virtual Shell
 

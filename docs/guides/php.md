@@ -3,14 +3,15 @@
 ## Overview
 
 The PHP implementation of the agent harness framework uses native traits for
-capability composition, Guzzle HTTP for LLM calls, and a synchronous execution
-model. Streaming is handled through Generators.
+capability composition, the [`openai-php/client`](https://github.com/openai-php/client) SDK for LLM calls, and a
+synchronous execution model. LLM streaming consumes the SDK's iterator;
+inline-event streaming is handled through Generators.
 
 ## Installation
 
 Dependencies are declared in the root `composer.json`:
 
-- **Runtime:** `guzzlehttp/guzzle`
+- **Runtime:** `openai-php/client`, `guzzlehttp/guzzle` (via openai-php's PSR-18 discovery)
 - **Dev:** `phpunit/phpunit`
 - **Autoloading:** PSR-4 under the `AgentHarness` namespace
 
@@ -84,15 +85,13 @@ class MyAgent extends BaseAgent
 
 ## LLM Providers
 
-The PHP harness uses Guzzle to POST `/v1/chat/completions` in OpenAI's wire format. `baseUrl` defaults to `https://api.openai.com/v1`; `apiKey` is sent as a `Bearer` token; extra fields go through `completionParams`:
+The PHP harness uses the [`openai-php/client`](https://github.com/openai-php/client) SDK. `BaseAgent` builds an `OpenAI\Client` via `OpenAI::factory()->withApiKey(...)->withBaseUri(...)->make()`. `apiKey` falls back to `getenv('OPENAI_API_KEY')` if omitted; `baseUrl` overrides the default OpenAI host; `completionParams` are merged into the request body.
 
 ```php
 use AgentHarness\AgentBuilder;
 
-// OpenAI default
-$agent = (new AgentBuilder('gpt-4o'))
-    ->apiKey(getenv('OPENAI_API_KEY'))
-    ->build();
+// OpenAI default (apiKey from env)
+$agent = (new AgentBuilder('gpt-4o'))->build();
 
 // OpenAI-compatible endpoint (Anthropic, OpenRouter, litellm-proxy, …)
 $agent = (new AgentBuilder('claude-sonnet-4-6'))
@@ -102,7 +101,7 @@ $agent = (new AgentBuilder('claude-sonnet-4-6'))
     ->build();
 ```
 
-`maxRetries` (default 2) controls exponential back-off. `stream: true` (default) currently sets the body parameter but does not consume an SSE stream — pass `stream: false` for non-streaming endpoints. There is no native Anthropic adapter — use an OpenAI-compatible proxy. See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
+`maxRetries` (default 2) controls exponential back-off. `stream: true` (default) iterates the SDK's `StreamResponse`, accumulating content and tool-call deltas into the same `{role, content, tool_calls}` shape as the non-streaming path — downstream code (handlers, hooks, middleware) is identical regardless of mode. Tests can inject a pre-built client (e.g. `OpenAI\Testing\ClientFake`) via `BaseAgent`'s `client:` constructor parameter. There is no native Anthropic adapter — use an OpenAI-compatible proxy. See the [LLM Providers guide](llm-providers.md) for the full provider matrix and cross-language differences.
 
 ## Lifecycle Hooks
 

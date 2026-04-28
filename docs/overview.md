@@ -48,7 +48,7 @@ Function-based mixins applied to a base class. Uses the OpenAI SDK for LLM calls
 
 ### PHP
 
-Native PHP traits for composition. Uses Guzzle HTTP for LLM calls. Streaming is implemented with Generator-based iteration.
+Native PHP traits for composition. Uses the [`openai-php/client`](https://github.com/openai-php/client) SDK for LLM calls with iterator-based streaming. Inline event streaming uses PHP Generators.
 
 ### Go
 

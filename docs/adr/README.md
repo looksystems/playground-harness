@@ -10,6 +10,7 @@ This directory contains Architecture Decision Records (ADRs) for the Agent Harne
 |-----|----------|
 | [0001](0001-mixin-trait-composition.md) | Mixin/Trait-Based Composition |
 | [0007](0007-language-idiomatic-implementations.md) | Language-Idiomatic Implementations |
+| [0033](0033-llm-provider-abstraction.md) | LLM Provider Abstraction Strategy |
 
 ### Mixins
 

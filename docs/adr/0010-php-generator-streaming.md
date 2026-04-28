@@ -43,3 +43,22 @@ lazy iteration and streaming.
   is buffered then yielded.
 - If future requirements demand concurrent event processing, a more significant
   architectural change would be needed.
+
+## Scope clarification (added 2026-04-28)
+
+This ADR covers the **inline event-stream parser** — turning accumulated LLM
+text into a sequence of typed event objects via Generators. It is **not** the
+same thing as HTTP-level SSE consumption from the LLM provider, which lives in
+the LLM client and is documented separately in [ADR 0033](0033-llm-provider-abstraction.md).
+
+Concretely:
+
+- The PHP `BaseAgent`'s `handleStream()` iterates the openai-php SDK's
+  `StreamResponse` (HTTP SSE) and accumulates content + tool-call deltas into
+  a complete assistant message — covered by ADR 0033.
+- That assistant message's text content may contain inline YAML event blocks,
+  which the event parser yields incrementally via a `Generator` — covered by
+  this ADR.
+
+Both layers can be active simultaneously. The Generator-based parser sits on
+top of the LLM client; it does not replace it.
