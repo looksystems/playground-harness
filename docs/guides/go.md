@@ -475,6 +475,24 @@ The builtin driver is the only one that supports `ExecStream` returning real eve
 
 See [docs/guides/bashkit.md](bashkit.md) and [docs/guides/openshell.md](openshell.md) for driver-specific setup.
 
+### Mounting filesystem sources
+
+To expose a *live directory tree* (a host folder, and later GitHub/Slack/DB sources) as browsable files, mount a `vfs.MountSource` rather than seeding content. The first mount lazily wraps the driver's fs in a `*vfs.MountingFilesystemDriver` and re-seats both `FS()` and the evaluator's fs, so the file tools and the shell builtins share one mount-aware filesystem.
+
+```go
+import "agent-harness/go/shell/vfs"
+
+a := agent.NewAgentWithShell("gpt-4o", client, builtin.NewBuiltinShellDriver())
+a.Mount("/work", vfs.NewLocalFolderSource("/path/on/host")) // promoted from *shell.Host
+a.Exec(ctx, "cat /work/hello.txt")                          // reads from the host folder
+a.Mounts()                                                  // ["/work"]
+a.Unmount("/work")
+```
+
+Mounts are **copy-up**: writing under a mount shadows the source in memory (the host file is never touched); `rm` of a copied-up path un-shadows it, while removing a source-only path returns an error (read-only — no whiteout in v1). Builtin driver only in v1 — `Mount` returns an error on other drivers.
+
+Write a custom source by implementing `vfs.MountSource` (`Stat`/`List`/`Read`, with `Stat` using the comma-ok idiom; subpaths relative to the mount point). Go uses the plain `Mount`/`Unmount`/`Mounts` names because the skills subsystem already uses `MountSkill`. See the [Virtual Filesystem guide](virtual-fs.md#mounts-programmatic-sources) and [ADR 0034](../adr/0034-programmatic-mount-sources.md).
+
 ## Example
 
 `cmd/harness-example/main.go` is a runnable demo that exercises tools, shell, events, skills, and hooks together. Run it with:
