@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"agent-harness/go/hooks"
+	"agent-harness/go/shell/vfs"
 	"agent-harness/go/tools"
 )
 
@@ -109,6 +110,56 @@ func (h *Host) UnregisterCommand(name string) {
 	}
 	h.Driver.UnregisterCommand(name)
 	h.emit(context.Background(), hooks.CommandUnregister, name)
+}
+
+// mountableDriver is the subset of shell drivers that support programmatic
+// mount sources. The builtin driver satisfies it; remote drivers do not.
+type mountableDriver interface {
+	Mount(mountPoint string, source vfs.MountSource)
+	Unmount(mountPoint string)
+	Mounts() []string
+}
+
+// Mount installs a read-only programmatic source as browsable files at
+// mountPoint (e.g. a host folder via vfs.NewLocalFolderSource). The mount is
+// visible to both the file tools and the shell builtins. Returns an error if
+// the active driver does not support mounting (v1: builtin driver only).
+//
+// Named Mount (not MountSkill) so it does not collide with the skills
+// subsystem; *Agent promotes this method via the embedded *Host.
+func (h *Host) Mount(mountPoint string, source vfs.MountSource) error {
+	if h.Driver == nil {
+		return fmt.Errorf("shell.Host: no Driver configured")
+	}
+	md, ok := h.Driver.(mountableDriver)
+	if !ok {
+		return fmt.Errorf("shell.Host: driver does not support mounts")
+	}
+	md.Mount(mountPoint, source)
+	return nil
+}
+
+// Unmount removes a mount point. No-op if the driver does not support mounts.
+func (h *Host) Unmount(mountPoint string) error {
+	if h.Driver == nil {
+		return fmt.Errorf("shell.Host: no Driver configured")
+	}
+	if md, ok := h.Driver.(mountableDriver); ok {
+		md.Unmount(mountPoint)
+	}
+	return nil
+}
+
+// Mounts returns the sorted active mount points, or nil if the driver does
+// not support mounts.
+func (h *Host) Mounts() []string {
+	if h.Driver == nil {
+		return nil
+	}
+	if md, ok := h.Driver.(mountableDriver); ok {
+		return md.Mounts()
+	}
+	return nil
 }
 
 // emit is a thin wrapper around Hub.EmitAsync that no-ops when the hub

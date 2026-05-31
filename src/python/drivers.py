@@ -193,7 +193,14 @@ class BuiltinShellDriver(ShellDriver):
         cloned_shell = self._shell.clone()
         driver = BuiltinShellDriver.__new__(BuiltinShellDriver)
         driver._shell = cloned_shell
-        driver._fs_driver = BuiltinFilesystemDriver(cloned_shell.fs)
+        # After a mount upgrade, shell.fs is already a FilesystemDriver (e.g. a
+        # MountingFilesystemDriver) and must be shared, not re-wrapped.
+        cloned_fs = cloned_shell.fs
+        driver._fs_driver = (
+            cloned_fs
+            if isinstance(cloned_fs, FilesystemDriver)
+            else BuiltinFilesystemDriver(cloned_fs)
+        )
         return driver
 
     @property

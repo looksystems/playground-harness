@@ -14,3 +14,6 @@ export { Shell, ShellRegistry, ExecResult } from "./shell.js";
 export { tryEmit } from "./utils.js";
 export type { FilesystemDriver, ShellDriver, ShellDriverOptions, ShellDriverFactoryFn } from "./drivers.js";
 export { BuiltinFilesystemDriver, BuiltinShellDriver, ShellDriverFactory } from "./drivers.js";
+export type { MountSource, MountStat, Mountable } from "./mount.js";
+export { MountingFilesystemDriver, isMountable } from "./mount.js";
+export { LocalFolderSource } from "./mount-sources.js";

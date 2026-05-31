@@ -7,7 +7,7 @@ namespace AgentHarness;
 class BuiltinShellDriver implements ShellDriverInterface
 {
     private Shell $shell;
-    private BuiltinFilesystemDriver $fsDriver;
+    private FilesystemDriver $fsDriver;
 
     public function __construct(
         string $cwd = '/',
@@ -16,15 +16,27 @@ class BuiltinShellDriver implements ShellDriverInterface
         int $maxOutput = 16_000,
         int $maxIterations = 10_000,
     ) {
+        $vfs = new VirtualFS();
         $this->shell = new Shell(
-            fs: new VirtualFS(),
+            fs: $vfs,
             cwd: $cwd,
             env: $env,
             allowedCommands: $allowedCommands,
             maxOutput: $maxOutput,
             maxIterations: $maxIterations,
         );
-        $this->fsDriver = new BuiltinFilesystemDriver($this->shell->fs);
+        $this->fsDriver = new BuiltinFilesystemDriver($vfs);
+    }
+
+    /**
+     * Re-seat the filesystem to a mount-aware driver, used by the lazy mount
+     * upgrade. The same instance becomes both the shell's fs (for builtins) and
+     * the tools' fs driver, so mounts are visible to both.
+     */
+    public function reseatMountingFs(MountingFilesystemDriver $fs): void
+    {
+        $this->fsDriver = $fs;
+        $this->shell->fs = $fs;
     }
 
     public function fs(): FilesystemDriver { return $this->fsDriver; }
@@ -51,7 +63,12 @@ class BuiltinShellDriver implements ShellDriverInterface
     {
         $driver = new self();
         $driver->shell = $shell;
-        $driver->fsDriver = new BuiltinFilesystemDriver($shell->fs);
+        // After a mount upgrade, $shell->fs is already a FilesystemDriver (a
+        // MountingFilesystemDriver) and must be shared, not re-wrapped.
+        $fs = $shell->fs;
+        $driver->fsDriver = $fs instanceof FilesystemDriver
+            ? $fs
+            : new BuiltinFilesystemDriver($fs);
         return $driver;
     }
 }

@@ -5,6 +5,25 @@
 
 import { VirtualFS } from "./virtual-fs.js";
 
+/**
+ * Minimal structural filesystem shape the shell builtins depend on. Both
+ * {@link VirtualFS} and the MountingFilesystemDriver satisfy it, so `Shell.fs`
+ * can be re-seated to a mount-aware filesystem without a logic change. Includes
+ * the private `_isDir` alias the builtins call directly.
+ */
+export interface FilesystemLike {
+  write(path: string, content: string): void;
+  read(path: string): string;
+  exists(path: string): boolean;
+  remove(path: string): void;
+  isDir?(path: string): boolean;
+  _isDir(path: string): boolean;
+  listdir(path?: string): string[];
+  find(root?: string, pattern?: string): string[];
+  stat(path: string): { path: string; type: string; size?: number; mtime?: number };
+  clone(): FilesystemLike;
+}
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -22,7 +41,7 @@ function makeResult(
 export type CmdHandler = (args: string[], stdin: string) => ExecResult;
 
 export interface ShellOptions {
-  fs?: VirtualFS;
+  fs?: FilesystemLike;
   cwd?: string;
   env?: Record<string, string>;
   allowedCommands?: Set<string>;
@@ -705,7 +724,7 @@ const MAX_VAR_SIZE = 64 * 1024;
 const MAX_EXPANSIONS = 1_000;
 
 export class Shell {
-  fs: VirtualFS;
+  fs: FilesystemLike;
   cwd: string;
   env: Record<string, string>;
   maxOutput: number;

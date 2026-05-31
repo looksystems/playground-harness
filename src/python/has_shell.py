@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Self
+from typing import TYPE_CHECKING, Any, Callable, Self
+
+if TYPE_CHECKING:
+    from src.python.mount import MountSource
 
 from src.python._utils import emit_fire_and_forget
 from src.python.has_hooks import HookEvent
@@ -119,6 +122,51 @@ class HasShell:
         if self.shell.cwd != old_cwd:
             emit_fire_and_forget(self, HookEvent.SHELL_CWD, old_cwd, self.shell.cwd)
         return result
+
+    def mount_source(self, mount_point: str, source: "MountSource") -> Self:
+        """Mount a programmatic source as browsable files at ``mount_point``.
+
+        The first mount lazily upgrades the writable fs to a
+        ``MountingFilesystemDriver`` and re-seats it as both the shell's fs and
+        the tools' driver instance. Builtin driver only (v1 scope).
+
+        Named ``mount_source`` (not ``mount``) because :class:`HasSkills`
+        already owns ``mount``/``unmount`` for skills on the composed agent.
+        """
+        from src.python.mount import MountingFilesystemDriver, Mountable
+
+        self._ensure_has_shell()
+        fs = self.shell.fs
+        if isinstance(fs, Mountable):
+            fs.mount(mount_point, source)
+            return self
+        if not isinstance(self._shell, BuiltinShellDriver):
+            raise NotImplementedError(
+                "Mounts are only supported on the builtin shell driver"
+            )
+        mounting = MountingFilesystemDriver(fs)
+        mounting.mount(mount_point, source)
+        self._shell._fs_driver = mounting
+        self._shell._shell.fs = mounting
+        return self
+
+    def unmount_source(self, mount_point: str) -> Self:
+        from src.python.mount import Mountable
+
+        self._ensure_has_shell()
+        fs = self.shell.fs
+        if isinstance(fs, Mountable):
+            fs.unmount(mount_point)
+        return self
+
+    def mount_sources(self) -> list[str]:
+        from src.python.mount import Mountable
+
+        self._ensure_has_shell()
+        fs = self.shell.fs
+        if isinstance(fs, Mountable):
+            return fs.mounts()
+        return []
 
     def register_command(self, name: str, handler: Callable) -> Self:
         self.shell.register_command(name, handler)

@@ -7,6 +7,11 @@ import { HookEvent } from "./has-hooks.js";
 import { tryEmit } from "./utils.js";
 import type { FilesystemDriver, ShellDriver } from "./drivers.js";
 import { BuiltinShellDriver, ShellDriverFactory } from "./drivers.js";
+import {
+  MountingFilesystemDriver,
+  isMountable,
+  type MountSource,
+} from "./mount.js";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -122,6 +127,47 @@ export function HasShell<TBase extends Constructor>(Base: TBase) {
         tryEmit(this, HookEvent.SHELL_CWD, oldCwd, this.shell.cwd);
       }
       return result;
+    }
+
+    /**
+     * Mount a programmatic source as browsable files at `mountPoint`.
+     *
+     * The first mount lazily upgrades the writable fs to a
+     * MountingFilesystemDriver and re-seats it as both the shell's fs and the
+     * tools' driver instance. Builtin driver only (v1 scope).
+     *
+     * Named `mountSource` (not `mount`) because HasSkills already owns
+     * `mount`/`unmount` for skills on the composed agent.
+     */
+    mountSource(mountPoint: string, source: MountSource): this {
+      this.ensureHasShell();
+      const fs = this.shell.fs;
+      if (isMountable(fs)) {
+        fs.mount(mountPoint, source);
+        return this;
+      }
+      if (!(this._shell instanceof BuiltinShellDriver)) {
+        throw new Error("Mounts are only supported on the builtin shell driver");
+      }
+      const mounting = new MountingFilesystemDriver(fs);
+      mounting.mount(mountPoint, source);
+      this._shell.reseatMountingFs(mounting);
+      return this;
+    }
+
+    unmountSource(mountPoint: string): this {
+      this.ensureHasShell();
+      const fs = this.shell.fs;
+      if (isMountable(fs)) {
+        fs.unmount(mountPoint);
+      }
+      return this;
+    }
+
+    mountSources(): string[] {
+      this.ensureHasShell();
+      const fs = this.shell.fs;
+      return isMountable(fs) ? fs.mounts() : [];
     }
 
     registerCommand(name: string, handler: CmdHandler): this {

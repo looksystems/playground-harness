@@ -7,7 +7,7 @@ namespace AgentHarness;
 /**
  * Simple in-memory filesystem. Paths are always absolute and normalized.
  */
-class VirtualFS
+class VirtualFS implements FilesystemLike
 {
     /** @var array<string, string> */
     private array $files = [];

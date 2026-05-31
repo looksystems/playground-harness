@@ -143,6 +143,51 @@ trait HasShell
         return $result;
     }
 
+    /**
+     * Mount a programmatic source as browsable files at $mountPoint.
+     *
+     * The first mount lazily upgrades the writable fs to a
+     * MountingFilesystemDriver and re-seats it as both the shell's fs and the
+     * tools' driver instance. Builtin driver only (v1 scope).
+     *
+     * Named mountSource() (not mount()) because HasSkills already owns
+     * mount()/unmount() for skills on the composed agent.
+     */
+    public function mountSource(string $mountPoint, MountSource $source): static
+    {
+        $this->ensureHasShell();
+        $fs = $this->shell()->fs();
+        if ($fs instanceof Mountable) {
+            $fs->mount($mountPoint, $source);
+            return $this;
+        }
+        if (!$this->shell instanceof BuiltinShellDriver) {
+            throw new \RuntimeException('Mounts are only supported on the builtin shell driver');
+        }
+        $mounting = new MountingFilesystemDriver($fs);
+        $mounting->mount($mountPoint, $source);
+        $this->shell->reseatMountingFs($mounting);
+        return $this;
+    }
+
+    public function unmountSource(string $mountPoint): static
+    {
+        $this->ensureHasShell();
+        $fs = $this->shell()->fs();
+        if ($fs instanceof Mountable) {
+            $fs->unmount($mountPoint);
+        }
+        return $this;
+    }
+
+    /** @return list<string> */
+    public function mountSources(): array
+    {
+        $this->ensureHasShell();
+        $fs = $this->shell()->fs();
+        return $fs instanceof Mountable ? $fs->mounts() : [];
+    }
+
     public function registerCommand(string $name, \Closure $handler): static
     {
         $this->shell()->registerCommand($name, $handler);

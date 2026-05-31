@@ -373,6 +373,23 @@ ShellDriverFactory.register("my-driver", lambda **kw: MyDriver(**kw))
 
 Python's VirtualFS supports `str | bytes` content, so binary files (images, protobuf) can be stored directly. See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
+### Mounting filesystem sources
+
+To expose a *live directory tree* (a host folder, and later GitHub/Slack/DB sources) as browsable files, mount a `MountSource` rather than seeding content. The first mount lazily upgrades the fs and re-seats it as both the shell's filesystem and the file tools' driver, so `cat`/`grep`/`find` and `Read`/`Glob`/`Grep` all see it.
+
+```python
+from src.python.mount_sources import LocalFolderSource
+
+agent.mount_source("/work", LocalFolderSource("/path/on/host"))
+agent.exec("cat /work/hello.txt")        # reads from the host folder
+agent.mount_sources()                    # ["/work"]
+agent.unmount_source("/work")
+```
+
+Mounts are **copy-up**: writing under a mount shadows the source in memory (the host file is never touched); `rm` of a copied-up path un-shadows it, while deleting a source-only path raises (read-only — no whiteout in v1). Builtin driver only in v1.
+
+Write a custom source by implementing `MountSource` (`stat`/`list`/`read`, subpaths relative to the mount point). The method is named `mount_source` (not `mount`) because `HasSkills` already owns `mount`/`unmount`. See the [Virtual Filesystem guide](virtual-fs.md#mounts-programmatic-sources) and [ADR 0034](../adr/0034-programmatic-mount-sources.md).
+
 ## Skills
 
 The `HasSkills` mixin enables mountable capability bundles that combine tools, instructions, middleware, hooks, and lifecycle management into a single unit.

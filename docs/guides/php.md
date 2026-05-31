@@ -426,6 +426,23 @@ ShellDriverFactory::register('my-driver', fn(array $opts) => new MyDriver($opts)
 
 See [ADR 0012](../adr/0012-virtual-shell-architecture.md) and [ADR 0021](../adr/0021-custom-command-registration.md) for architecture details.
 
+### Mounting filesystem sources
+
+To expose a *live directory tree* (a host folder, and later GitHub/Slack/DB sources) as browsable files, mount a `MountSource` rather than seeding content. The first mount lazily upgrades the fs and re-seats it as both the shell's filesystem and the file tools' driver, so `cat`/`grep`/`find` and `Read`/`Glob`/`Grep` all see it.
+
+```php
+use AgentHarness\LocalFolderSource;
+
+$agent->mountSource('/work', new LocalFolderSource('/path/on/host'));
+$agent->execCommand('cat /work/hello.txt');   // reads from the host folder
+$agent->mountSources();                       // ['/work']
+$agent->unmountSource('/work');
+```
+
+Mounts are **copy-up**: writing under a mount shadows the source in memory (the host file is never touched); `rm` of a copied-up path un-shadows it, while deleting a source-only path throws (read-only — no whiteout in v1). Builtin driver only in v1.
+
+Write a custom source by implementing the `MountSource` interface (`stat`/`list`/`read`, subpaths relative to the mount point). The method is named `mountSource` (not `mount`) because `HasSkills` already owns `mount`/`unmount`. See the [Virtual Filesystem guide](virtual-fs.md#mounts-programmatic-sources) and [ADR 0034](../adr/0034-programmatic-mount-sources.md).
+
 ## Skills
 
 The `HasSkills` trait enables mountable capability bundles that combine tools, instructions, middleware, hooks, and lifecycle management into a single unit.

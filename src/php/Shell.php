@@ -740,7 +740,7 @@ class Shell
      * @param list<string>|null $allowedCommands
      */
     public function __construct(
-        public VirtualFS $fs,
+        public FilesystemLike $fs,
         public string $cwd = '/',
         public array $env = [],
         private ?array $allowedCommands = null,

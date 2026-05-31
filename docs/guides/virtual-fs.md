@@ -159,6 +159,42 @@ The driver wraps the VFS in a **dirty-tracking shim** (`DirtyTrackingFS`): write
 
 The practical consequence: with an external driver, **mount through `agent.fs`** (the host side) so the change is dirty-tracked and pushed on the next `exec`. Writing files inside the sandbox out-of-band risks being overwritten by the next preamble sync. With the builtin driver there is only one filesystem, so this is moot.
 
+## Mounts (programmatic sources)
+
+The seeding APIs above hold *materialised* content. To expose a **live directory tree of unknown shape** — a host folder, a GitHub repo, Slack messages, a DB table — mount a **`MountSource`** instead. The agent then browses it with the same file tools and shell commands (`ls`, `cat`, `grep`, `find`, `Read`, `Glob`, `Grep`); there is no bespoke tool per data source. See [ADR 0034](../adr/0034-programmatic-mount-sources.md).
+
+A `MountSource` is a read-only provider with three methods, scoped to a path *relative* to the mount point (`""` is the mount root):
+
+- `stat(subpath)` → a small stat (`isDir`, optional `size`/`mtime`) or **not-found** (`null`/`None`/`(_, false)`). Existence is checked constantly, so this never throws for control flow.
+- `list(subpath)` → immediate child names of a directory subpath.
+- `read(subpath)` → file content.
+
+Mount one through the agent's shell mixin. The first mount lazily wraps the writable fs in a `MountingFilesystemDriver` and re-seats it as **both** the shell's filesystem and the file tools' driver, so both see the mount; there is zero overhead until you mount:
+
+```python
+from src.python.mount_sources import LocalFolderSource
+
+agent.mount_source("/work", LocalFolderSource("/path/on/host"))
+agent.exec("cat /work/hello.txt")        # reads from the host folder
+agent.mount_sources()                    # ["/work"]
+agent.unmount_source("/work")
+```
+
+`LocalFolderSource` is the first concrete source — it mirrors a host directory, read-only and path-escape-safe (`../` and symlink escapes are rejected; out-of-root paths read as not-found).
+
+**Copy-up overlay (mutability).** Writes under a mount go to the in-memory layer and **shadow** the source — the host source is never touched. So `echo edited > /work/hello.txt` makes `cat` return `edited` while the host file stays unchanged; `rm /work/hello.txt` then un-shadows it and the original source content reappears. Deleting a **source-only** path raises (the source is read-only; there is no whiteout/tombstone in v1).
+
+**Scope (v1).** Mounts are supported on the **builtin driver only**. Remote drivers (bashkit/OpenShell) do not sync mounts — `mount_source` raises (Go `Mount` returns an error) on a non-builtin driver.
+
+| Method | Python / TS / PHP | Go |
+|--------|-------------------|----|
+| Mount a source | `mount_source` / `mountSource` / `mountSource` | `Mount` |
+| Unmount | `unmount_source` / `unmountSource` / `unmountSource` | `Unmount` |
+| List mount points | `mount_sources` / `mountSources` / `mountSources` | `Mounts` |
+| First concrete source | `LocalFolderSource` | `vfs.NewLocalFolderSource` |
+
+The verbose names in the dynamic ports avoid colliding with `HasSkills`'s `mount`/`unmount`; Go's skills subsystem already uses `MountSkill`, leaving the plain names free.
+
 ## Behaviour reference
 
 All methods normalise their path argument first. Names below use the Python spelling; see the [cross-language table](#cross-language-surface) for the others.
@@ -201,6 +237,7 @@ All methods normalise their path argument first. Names below use the Python spel
 - **mtime is a logical counter, not wall-clock time.** Only meaningful for relative ordering within one VFS instance (Glob's "newest first"). It does not survive serialisation as a timestamp and is not comparable across instances.
 - **Content is held in memory.** The VFS is not backed by host disk. Large corpora live entirely in RAM; there is no streaming/paging.
 - **Not a POSIX filesystem.** No permissions, symlinks, hard links, devices, or inodes. Path normalisation resolves `..` lexically, with no symlink awareness.
+- **Mounts are builtin-driver-only and source-read-only.** Remote drivers don't sync mounts; deleting a source-only path raises (copy-up shadowing only, no whiteout). See [Mounts](#mounts-programmatic-sources).
 
 ## See also
 
