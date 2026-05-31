@@ -354,6 +354,50 @@ func (d *BuiltinShellDriver) Clone() shell.Driver {
 	return nd
 }
 
+// ---------------------------------------------------------------------------
+// Mountable capability (programmatic mount sources)
+// ---------------------------------------------------------------------------
+
+// Mount installs a read-only source at mountPoint. On the first mount it
+// lazily wraps the driver's fs in a *vfs.MountingFilesystemDriver and
+// re-seats it as BOTH the public FS() handle and the evaluator's FS, so the
+// file tools and the shell builtins share one mount-aware filesystem. There
+// is zero overhead until the first mount.
+func (d *BuiltinShellDriver) Mount(mountPoint string, source vfs.MountSource) {
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	mfs, ok := d.fs.(*vfs.MountingFilesystemDriver)
+	if !ok {
+		mfs = vfs.NewMountingFilesystemDriver(d.fs)
+		d.fs = mfs
+		d.eval.FS = mfs
+	}
+	mfs.Mount(mountPoint, source)
+}
+
+// Unmount removes a mount point. No-op if nothing is mounted there.
+func (d *BuiltinShellDriver) Unmount(mountPoint string) {
+	d.execMu.Lock()
+	defer d.execMu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if mfs, ok := d.fs.(*vfs.MountingFilesystemDriver); ok {
+		mfs.Unmount(mountPoint)
+	}
+}
+
+// Mounts returns the sorted list of active mount points.
+func (d *BuiltinShellDriver) Mounts() []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if mfs, ok := d.fs.(*vfs.MountingFilesystemDriver); ok {
+		return mfs.Mounts()
+	}
+	return nil
+}
+
 // NotFoundHandler returns the current not-found handler.
 func (d *BuiltinShellDriver) NotFoundHandler() shell.NotFoundHandler {
 	d.execMu.Lock()

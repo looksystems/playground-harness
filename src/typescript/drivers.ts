@@ -1,5 +1,6 @@
 import { VirtualFS } from "./virtual-fs.js";
 import { Shell, type ExecResult, type CmdHandler, type ShellOptions } from "./shell.js";
+import type { MountingFilesystemDriver } from "./mount.js";
 
 export interface ShellSecurityPolicy {
   allowedCommands?: Set<string>;
@@ -67,7 +68,7 @@ export interface ShellDriverOptions {
 
 export class BuiltinShellDriver implements ShellDriver {
   private _shell: Shell;
-  private _fsDriver: BuiltinFilesystemDriver;
+  private _fsDriver: FilesystemDriver;
   private _opts: ShellDriverOptions;
 
   constructor(opts: ShellDriverOptions = {}) {
@@ -79,7 +80,17 @@ export class BuiltinShellDriver implements ShellDriver {
       maxOutput: opts.maxOutput,
       maxIterations: opts.maxIterations,
     });
-    this._fsDriver = new BuiltinFilesystemDriver(this._shell.fs);
+    this._fsDriver = new BuiltinFilesystemDriver(this._shell.fs as VirtualFS);
+  }
+
+  /**
+   * Re-seat the filesystem to a mount-aware driver, used by the lazy mount
+   * upgrade. The same instance becomes both the shell's fs (for builtins) and
+   * the tools' fs driver, so mounts are visible to both.
+   */
+  reseatMountingFs(fs: MountingFilesystemDriver): void {
+    this._fsDriver = fs;
+    this._shell.fs = fs;
   }
 
   get fs(): FilesystemDriver { return this._fsDriver; }
@@ -97,7 +108,14 @@ export class BuiltinShellDriver implements ShellDriver {
     const clonedShell = this._shell.clone();
     const driver = Object.create(BuiltinShellDriver.prototype) as BuiltinShellDriver;
     driver._shell = clonedShell;
-    driver._fsDriver = new BuiltinFilesystemDriver(clonedShell.fs);
+    // After a mount upgrade, clonedShell.fs is already a FilesystemDriver
+    // (a MountingFilesystemDriver, detected by its Mountable `mounts` method)
+    // and must be shared, not re-wrapped.
+    const clonedFs = clonedShell.fs as unknown;
+    driver._fsDriver =
+      typeof (clonedFs as { mounts?: unknown }).mounts === "function"
+        ? (clonedFs as FilesystemDriver)
+        : new BuiltinFilesystemDriver(clonedShell.fs as VirtualFS);
     driver._opts = { ...this._opts };
     return driver;
   }
@@ -109,7 +127,7 @@ export class BuiltinShellDriver implements ShellDriver {
   static fromShell(shell: Shell): BuiltinShellDriver {
     const driver = Object.create(BuiltinShellDriver.prototype) as BuiltinShellDriver;
     driver._shell = shell;
-    driver._fsDriver = new BuiltinFilesystemDriver(shell.fs);
+    driver._fsDriver = new BuiltinFilesystemDriver(shell.fs as VirtualFS);
     driver._opts = {};
     return driver;
   }

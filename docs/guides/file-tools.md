@@ -22,6 +22,8 @@ The file tools call only the existing `FilesystemDriver` interface methods (`rea
 
 The single concrete addition to the driver was an **mtime field on stat**. `VirtualFS` now maintains a per-instance monotonic counter that increments on every `write` / `writeLazy`; `stat()` exposes it as the `mtime` field (Python/TS dict, PHP array, Go `FileInfo.Mtime`). Glob's "newest first" ordering is the only surface that depends on it — drivers that don't track mtime can return zero and Glob will sort stably as a fallback.
 
+Because the tools go through the driver, **mounted content is transparently visible** to Read, Glob, and Grep. When a host folder (or any [`MountSource`](virtual-fs.md#mounts-programmatic-sources)) is mounted, the first mount re-seats the agent's fs to a mount-aware driver, so `Glob("/work/**/*.txt")`, `Grep`, and `Read("/work/...")` enumerate and read the merged tree exactly as they do for in-memory files — no tool changes required.
+
 ## Defining the file tools
 
 Each language exports a single registration helper — call it once per agent and you get all five tools.
