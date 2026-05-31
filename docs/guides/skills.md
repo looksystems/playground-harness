@@ -185,6 +185,78 @@ agent.use(SkillPromptMiddleware(agent.skills))
 
 **Go:** the fluent builder installs it automatically the first time `.Skill(...)` is called.
 
+> For skills that should stay out of the prompt until a task needs them, see [Progressive skills](#progressive-skills) below — the middleware renders those in a compact discovery form instead of their full instructions.
+
+## Progressive skills
+
+By default a skill is **eager**: mounting it runs `setup()`, registers its tools/middleware/hooks/commands, and pins its full `instructions` into the system prompt for every turn. That is ideal for a few always-on skills, but it spends context linearly in the number of mounted skills.
+
+A skill can instead opt into **progressive** (lazy) loading — the [agentskills.io](https://agentskills.io) progressive-disclosure model. Many progressive skills can be on hand for a small, fixed context cost. The lifecycle has three stages:
+
+1. **Discovery.** Mounting a progressive skill registers *nothing* but its discovery metadata: the model sees only `## {name}\n{description}` plus a hint to call `load_skill('{name}')`. No `setup()`, no tools, no instructions body.
+2. **Activation.** When a task matches, the model calls the `load_skill` tool. The skill's dependencies are resolved, the normal mount path runs (`setup()` → register contributions), `SKILL_SETUP`/`SKILL_MOUNT` fire, and the prompt switches to the skill's **full instructions**. The tool also returns the instructions string so the body lands in context for the current turn.
+3. **Execution.** From then on the skill behaves exactly like an eager skill.
+
+Activation is **one-way** — there is no progressive de-activation (this sidesteps the best-effort middleware/hook-unmount limitation; see [Known limitations](#known-limitations)).
+
+### The `progressive` flag
+
+A progressive skill **must** have a non-empty `description` — it is all the model sees before activation. Registering one with an empty description raises a clear error.
+
+**Python** — a `progressive` property, default `False`:
+
+```python
+class ResearchSkill(Skill):
+    @property
+    def description(self) -> str:
+        return "Deep web research: fan out searches, fetch and cite sources."
+
+    @property
+    def progressive(self) -> bool:
+        return True
+
+    @property
+    def instructions(self) -> str:
+        return "Use fetch_page to browse; verify every claim against two sources."
+```
+
+**TypeScript** — a `progressive` field, default `false`:
+
+```typescript
+class ResearchSkill extends Skill {
+  description = "Deep web research: fan out searches, fetch and cite sources.";
+  progressive = true;
+  instructions = "Use fetch_page to browse; verify every claim against two sources.";
+}
+```
+
+**PHP** — a `public bool $progressive` property, default `false`:
+
+```php
+class ResearchSkill extends Skill
+{
+    public string $description = 'Deep web research: fan out searches, fetch and cite sources.';
+    public bool $progressive = true;
+    public string $instructions = 'Use fetch_page to browse; verify every claim against two sources.';
+}
+```
+
+**Go** — a narrow optional capability interface, type-asserted at mount (the required `Skill` interface is not widened; see [the Go capability-interface model](#the-go-capability-interface-model)):
+
+```go
+type ResearchSkill struct{ skills.Base }
+
+func (ResearchSkill) Description() string  { return "Deep web research: fan out searches, fetch and cite sources." }
+func (ResearchSkill) Progressive() bool    { return true }
+func (ResearchSkill) Instructions() string { return "Use fetch_page to browse; verify every claim against two sources." }
+```
+
+### The `load_skill` tool
+
+The manager builds and registers a single `load_skill(name: string) -> string` tool **only while at least one progressive skill is pending**. It appears when the first progressive skill is mounted and is removed once the last one has been activated, so the model never sees it when there is nothing to load.
+
+Calling `load_skill('research')` activates the named skill and returns its instructions body. Re-loading an already-loaded skill is idempotent — it simply returns the body again.
+
 ## Lifecycle: setup and teardown
 
 Skills that hold resources (HTTP sessions, DB connections, open files) use `setup`/`teardown`:
@@ -434,5 +506,6 @@ Mount it and the agent now has an extra tool, middleware, hook handler, and shel
 ## See also
 
 - [ADR 0024](../adr/0024-has-skills-mixin.md) — the `HasSkills` design
+- [ADR 0035](../adr/0035-progressive-skill-loading.md) — progressive (lazy-loaded) skills
 - [ADR 0031](../adr/0031-go-struct-embedding-composition.md) — Go-specific composition (why the capability interfaces)
 - [Python guide: Skills](python.md#skills) · [TypeScript guide: Skills](typescript.md#skills) · [PHP guide: Skills](php.md#skills) · [Go guide: Skills](go.md#skills)

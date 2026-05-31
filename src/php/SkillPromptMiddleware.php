@@ -9,28 +9,39 @@ class SkillPromptMiddleware extends BaseMiddleware
     /** @var array<int, Skill> */
     private array $skills;
 
+    /** @var array<int, Skill> */
+    private array $pending;
+
     /**
-     * @param array<int, Skill> $skills
+     * @param array<int, Skill> $skills loaded skills (eager + activated) — full instructions.
+     * @param array<int, Skill> $pending pending progressive skills — name + description + load hint.
      */
-    public function __construct(array $skills)
+    public function __construct(array $skills, array $pending = [])
     {
         $this->skills = $skills;
+        $this->pending = $pending;
     }
 
     public function pre(array $messages, mixed $context): array
     {
-        $skillsWithInstructions = array_filter(
-            $this->skills,
-            fn(Skill $s) => $s->instructions !== '',
-        );
+        $sections = [];
+        foreach ($this->skills as $skill) {
+            if ($skill->instructions !== '') {
+                $sections[] = "## {$skill->name}\n{$skill->instructions}";
+            }
+        }
+        foreach ($this->pending as $skill) {
+            $sections[] = "## {$skill->name}\n{$skill->description}\n\n"
+                . "_Not loaded — call `load_skill('{$skill->name}')` to activate._";
+        }
 
-        if (count($skillsWithInstructions) === 0) {
+        if (count($sections) === 0) {
             return $messages;
         }
 
         $block = "\n\n---\n**Available Skills:**";
-        foreach ($skillsWithInstructions as $skill) {
-            $block .= "\n\n## {$skill->name}\n{$skill->instructions}";
+        foreach ($sections as $section) {
+            $block .= "\n\n{$section}";
         }
 
         foreach ($messages as &$message) {

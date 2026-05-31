@@ -20,9 +20,15 @@ trait HasSkills
     public function mount(Skill $skill, array $config = []): static
     {
         $this->ensureHasSkills();
-        Helpers::tryEmit($this,HookEvent::SkillSetup, $skill);
+        // Progressive skills emit SKILL_SETUP/SKILL_MOUNT from the manager when
+        // activated; eager skills emit here at mount time.
+        if (!$skill->progressive) {
+            Helpers::tryEmit($this, HookEvent::SkillSetup, $skill);
+        }
         $this->skillManager->mount($skill, $config);
-        Helpers::tryEmit($this,HookEvent::SkillMount, $skill);
+        if (!$skill->progressive) {
+            Helpers::tryEmit($this, HookEvent::SkillMount, $skill);
+        }
         return $this;
     }
 

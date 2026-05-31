@@ -512,3 +512,104 @@ func TestManager_Unmount_EmitsTeardownAndUnmount(t *testing.T) {
 	assert.Contains(t, events, hooks.SkillTeardown)
 	assert.Contains(t, events, hooks.SkillUnmount)
 }
+
+// ---------------------------------------------------------------------------
+// Progressive (lazy-loaded) skills
+// ---------------------------------------------------------------------------
+
+// progSkill is a progressive skill contributing a tool + instructions.
+type progSkill struct{ skills.Base }
+
+func (progSkill) Name() string         { return "prog" }
+func (progSkill) Description() string  { return "A progressive skill on demand" }
+func (progSkill) Instructions() string { return "Detailed body only after load" }
+func (progSkill) Progressive() bool    { return true }
+func (progSkill) Tools() []tools.Def {
+	return []tools.Def{{
+		Name:        "prog_tool",
+		Description: "noop",
+		Parameters:  map[string]any{"type": "object"},
+		Execute:     func(_ context.Context, _ []byte) (any, error) { return "ok", nil },
+	}}
+}
+
+// emptyDescProgSkill is progressive but has no description (must be rejected).
+type emptyDescProgSkill struct{ skills.Base }
+
+func (emptyDescProgSkill) Name() string      { return "empty_prog" }
+func (emptyDescProgSkill) Progressive() bool { return true }
+
+func TestManager_Progressive_DeferredMount(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+
+	// Not mounted, its tool is not registered, but the loader tool is.
+	assert.Empty(t, m.Mounted())
+	_, ok := fa.tools["prog_tool"]
+	assert.False(t, ok, "progressive tool must not register at mount")
+	_, ok = fa.tools["load_skill"]
+	assert.True(t, ok, "loader tool should register while a progressive skill is pending")
+}
+
+func TestManager_Progressive_EmptyDescriptionErrors(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+
+	err := m.Mount(context.Background(), emptyDescProgSkill{}, nil)
+	require.Error(t, err)
+	assert.Empty(t, m.Mounted())
+	_, ok := fa.tools["load_skill"]
+	assert.False(t, ok, "loader tool must not register when registration failed")
+}
+
+func TestManager_Progressive_NoHooksUntilActivation(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+	assert.NotContains(t, fa.emittedEvents(), hooks.SkillSetup)
+	assert.NotContains(t, fa.emittedEvents(), hooks.SkillMount)
+
+	loader := fa.tools["load_skill"]
+	_, err := loader.Execute(context.Background(), []byte(`{"name":"prog"}`))
+	require.NoError(t, err)
+	assert.Contains(t, fa.emittedEvents(), hooks.SkillSetup)
+	assert.Contains(t, fa.emittedEvents(), hooks.SkillMount)
+}
+
+func TestManager_Progressive_ActivateRegistersToolsAndReturnsBody(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+
+	loader := fa.tools["load_skill"]
+	out, err := loader.Execute(context.Background(), []byte(`{"name":"prog"}`))
+	require.NoError(t, err)
+	body, ok := out.(string)
+	require.True(t, ok)
+	assert.Contains(t, body, "Detailed body only after load")
+
+	assert.Equal(t, []string{"prog"}, m.Mounted())
+	_, ok = fa.tools["prog_tool"]
+	assert.True(t, ok, "activation should register the skill's tool")
+	_, ok = fa.tools["load_skill"]
+	assert.False(t, ok, "loader tool should be removed once nothing is pending")
+}
+
+func TestManager_Progressive_ActivateIdempotent(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+	loader := fa.tools["load_skill"]
+
+	b1, err := loader.Execute(context.Background(), []byte(`{"name":"prog"}`))
+	require.NoError(t, err)
+	// Re-activating an already-loaded skill returns its body without error.
+	b2, err := loader.Execute(context.Background(), []byte(`{"name":"prog"}`))
+	require.NoError(t, err)
+	assert.Equal(t, b1, b2)
+}

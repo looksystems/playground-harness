@@ -26,6 +26,16 @@ class SkillManager
 
     private ?SkillPromptMiddleware $promptMw = null;
 
+    private const LOADER_TOOL_NAME = 'load_skill';
+
+    /** @var array<string, Skill> Progressive skills registered but not yet activated. */
+    private array $pending = [];
+
+    /** @var array<string, array<string, mixed>> Per-mount config captured at register time. */
+    private array $pendingConfig = [];
+
+    private bool $loaderRegistered = false;
+
     public function __construct(
         private readonly object $agent,
     ) {
@@ -33,10 +43,23 @@ class SkillManager
 
     public function mount(Skill $skill, array $config = []): void
     {
+        if ($skill->progressive) {
+            if (isset($this->skills[$skill->name]) || isset($this->pending[$skill->name])) {
+                return;
+            }
+            $this->registerDeferred($skill, $config);
+            return;
+        }
+
         if (isset($this->skills[$skill->name])) {
             return;
         }
 
+        $this->mountEager($skill, $config);
+    }
+
+    private function mountEager(Skill $skill, array $config): void
+    {
         // Resolve and mount dependencies first
         $this->resolveDeps($skill, $config);
 
@@ -97,6 +120,95 @@ class SkillManager
         $this->mountOrder[] = $skill->name;
 
         $this->rebuildPromptMiddleware();
+    }
+
+    // ── Progressive (two-phase) ───────────────────────────────────
+
+    private function registerDeferred(Skill $skill, array $config): void
+    {
+        if ($skill->description === '') {
+            throw new \InvalidArgumentException(
+                "Progressive skill '{$skill->name}' must have a non-empty description",
+            );
+        }
+        $this->pending[$skill->name] = $skill;
+        $this->pendingConfig[$skill->name] = $config;
+        $this->ensureLoaderTool();
+        $this->rebuildPromptMiddleware();
+    }
+
+    /**
+     * Activate a pending progressive skill, returning its instructions body.
+     *
+     * Idempotent: activating an already-loaded skill simply returns its body.
+     * Runs the normal eager mount path (which resolves dependencies), emits
+     * SKILL_SETUP/SKILL_MOUNT, and removes the loader tool once none remain
+     * pending.
+     */
+    public function activate(string $name): string
+    {
+        if (isset($this->skills[$name])) {
+            return $this->skills[$name]->instructions;
+        }
+        if (!isset($this->pending[$name])) {
+            throw new \InvalidArgumentException("No pending progressive skill named '{$name}'");
+        }
+
+        $skill = $this->pending[$name];
+        $config = $this->pendingConfig[$name] ?? [];
+        unset($this->pending[$name], $this->pendingConfig[$name]);
+
+        $this->mountEager($skill, $config);
+
+        Helpers::tryEmit($this->agent, HookEvent::SkillSetup, $skill);
+        Helpers::tryEmit($this->agent, HookEvent::SkillMount, $skill);
+
+        $this->maybeUnregisterLoader();
+        return $skill->instructions;
+    }
+
+    private function buildLoaderTool(): ToolDef
+    {
+        return ToolDef::make(
+            name: self::LOADER_TOOL_NAME,
+            description: 'Load (activate) a progressive skill by name. Activating a skill '
+                . 'registers its tools and surfaces its full instructions. Pass the '
+                . 'skill name exactly as shown in the Available Skills list.',
+            parameters: [
+                'type' => 'object',
+                'properties' => [
+                    'name' => [
+                        'type' => 'string',
+                        'description' => 'Name of the progressive skill to activate.',
+                    ],
+                ],
+                'required' => ['name'],
+            ],
+            execute: fn(array $args) => $this->activate($args['name'] ?? ''),
+        );
+    }
+
+    private function ensureLoaderTool(): void
+    {
+        if ($this->loaderRegistered) {
+            return;
+        }
+        if (!method_exists($this->agent, 'registerTool')) {
+            return;
+        }
+        $this->agent->registerTool($this->buildLoaderTool());
+        $this->loaderRegistered = true;
+    }
+
+    private function maybeUnregisterLoader(): void
+    {
+        if (count($this->pending) > 0) {
+            return;
+        }
+        if ($this->loaderRegistered && method_exists($this->agent, 'unregisterTool')) {
+            $this->agent->unregisterTool(self::LOADER_TOOL_NAME);
+        }
+        $this->loaderRegistered = false;
     }
 
     public function unmount(string $name): void
@@ -168,6 +280,9 @@ class SkillManager
 
         $this->skills = [];
         $this->mountOrder = [];
+        $this->pending = [];
+        $this->pendingConfig = [];
+        $this->maybeUnregisterLoader();
         $this->skillTools = [];
         $this->skillMiddleware = [];
         $this->skillHooks = [];
@@ -180,6 +295,14 @@ class SkillManager
     public function skills(): array
     {
         return $this->skills;
+    }
+
+    /**
+     * @return array<string, Skill>
+     */
+    public function pending(): array
+    {
+        return $this->pending;
     }
 
     private function resolveDeps(Skill $skill, array $config): void
@@ -250,14 +373,15 @@ class SkillManager
             $this->agent->removeMiddleware($this->promptMw);
         }
 
-        $activeSkills = array_values($this->skills);
+        $loaded = array_values($this->skills);
+        $pending = array_values($this->pending);
 
-        if (count($activeSkills) === 0) {
+        if (count($loaded) === 0 && count($pending) === 0) {
             $this->promptMw = null;
             return;
         }
 
-        $this->promptMw = new SkillPromptMiddleware($activeSkills);
+        $this->promptMw = new SkillPromptMiddleware($loaded, $pending);
         $this->agent->use($this->promptMw);
     }
 }

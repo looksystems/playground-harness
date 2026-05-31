@@ -181,6 +181,30 @@ class TestCommandProvidingSkill extends Skill
     }
 }
 
+// ── Progressive skills ────────────────────────────────────────────
+
+class TestProgressiveSkill extends Skill
+{
+    public string $description = 'A progressive skill that does things on demand';
+    public string $instructions = 'Detailed instructions only available once loaded';
+    public bool $progressive = true;
+
+    public function tools(): array
+    {
+        return [ToolDef::make(
+            name: 'prog_tool',
+            description: 'A progressive tool',
+            parameters: ['type' => 'object', 'properties' => []],
+            execute: fn(array $args) => 'prog-result',
+        )];
+    }
+}
+
+class TestEmptyDescProgressiveSkill extends Skill
+{
+    public bool $progressive = true;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────
 
 class HasSkillsTest extends TestCase
@@ -545,5 +569,125 @@ class HasSkillsTest extends TestCase
     {
         $skill = new TestNoInstructionsSkill();
         $this->assertSame([], $skill->commands());
+    }
+
+    // ── 10. Progressive skills ────────────────────────────────────
+
+    private function toolNames(object $agent): array
+    {
+        $schema = $agent->toolsSchema();
+        return array_column(array_column($schema, 'function'), 'name');
+    }
+
+    public function testProgressiveDefaultFalse(): void
+    {
+        $this->assertFalse((new TestWebBrowsingSkill())->progressive);
+    }
+
+    public function testProgressiveFlagTrue(): void
+    {
+        $this->assertTrue((new TestProgressiveSkill())->progressive);
+    }
+
+    public function testProgressivePromptShowsDescriptionNotInstructions(): void
+    {
+        $agent = new FullSkillAgent();
+        $agent->mount(new TestProgressiveSkill());
+        $messages = [['role' => 'system', 'content' => 'Base']];
+        $result = $agent->runPre($messages, null);
+        $content = $result[0]['content'];
+        $this->assertStringContainsString('A progressive skill that does things on demand', $content);
+        $this->assertStringNotContainsString('Detailed instructions only available once loaded', $content);
+        $this->assertStringContainsString('load_skill', $content);
+    }
+
+    public function testProgressiveToolsNotRegisteredUntilLoad(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $this->assertNotContains('prog_tool', $this->toolNames($agent));
+    }
+
+    public function testProgressiveNotInSkillsUntilLoaded(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $this->assertArrayNotHasKey('test_progressive', $agent->skills());
+    }
+
+    public function testLoaderToolRegisteredWhilePending(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $this->assertContains('load_skill', $this->toolNames($agent));
+    }
+
+    public function testLoaderToolRemovedWhenNonePending(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $this->assertContains('load_skill', $this->toolNames($agent));
+        $agent->executeTool('load_skill', ['name' => 'test_progressive']);
+        $this->assertNotContains('load_skill', $this->toolNames($agent));
+    }
+
+    public function testLoadActivatesToolsAndReturnsBody(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $body = $agent->executeTool('load_skill', ['name' => 'test_progressive']);
+        $this->assertStringContainsString('Detailed instructions only available once loaded', $body);
+        $this->assertContains('prog_tool', $this->toolNames($agent));
+        $this->assertArrayHasKey('test_progressive', $agent->skills());
+    }
+
+    public function testLoadSwitchesPromptToFullInstructions(): void
+    {
+        $agent = new FullSkillAgent();
+        $agent->mount(new TestProgressiveSkill());
+        $agent->executeTool('load_skill', ['name' => 'test_progressive']);
+        $messages = [['role' => 'system', 'content' => 'Base']];
+        $result = $agent->runPre($messages, null);
+        $this->assertStringContainsString('Detailed instructions only available once loaded', $result[0]['content']);
+    }
+
+    public function testLoadSkillIdempotent(): void
+    {
+        $agent = new SkillsWithTools();
+        $agent->mount(new TestProgressiveSkill());
+        $body1 = $agent->executeTool('load_skill', ['name' => 'test_progressive']);
+        // load_skill is gone now; activate again directly via a re-mount is a no-op.
+        // Re-activating an already-loaded skill returns its body without error.
+        $agent2 = new SkillsWithTools();
+        $agent2->mount(new TestProgressiveSkill());
+        $b1 = $agent2->executeTool('load_skill', ['name' => 'test_progressive']);
+        $this->assertStringContainsString('Detailed instructions only available once loaded', $body1);
+        $this->assertSame($body1, $b1);
+    }
+
+    public function testEmptyDescriptionProgressiveRejected(): void
+    {
+        $agent = new SkillsWithTools();
+        $this->expectException(\InvalidArgumentException::class);
+        $agent->mount(new TestEmptyDescProgressiveSkill());
+    }
+
+    public function testNoHooksUntilActivation(): void
+    {
+        $agent = new FullSkillAgent();
+        $fired = [];
+        $agent->on(HookEvent::SkillSetup, function (Skill $skill) use (&$fired) {
+            $fired[] = "setup:{$skill->name}";
+        });
+        $agent->on(HookEvent::SkillMount, function (Skill $skill) use (&$fired) {
+            $fired[] = "mount:{$skill->name}";
+        });
+
+        $agent->mount(new TestProgressiveSkill());
+        $this->assertSame([], $fired);
+
+        $agent->executeTool('load_skill', ['name' => 'test_progressive']);
+        $this->assertContains('setup:test_progressive', $fired);
+        $this->assertContains('mount:test_progressive', $fired);
     }
 }

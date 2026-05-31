@@ -11,6 +11,13 @@ abstract class Skill
     public string $version = '0.1.0';
     public string $instructions = '';
 
+    /**
+     * When true, the skill is lazily loaded: registering it injects only its
+     * name + description into the prompt; its instructions, tools, middleware,
+     * hooks and commands are wired up on demand via the `load_skill` tool.
+     */
+    public bool $progressive = false;
+
     /** @var array<int, class-string<Skill>> */
     public array $dependencies = [];
 

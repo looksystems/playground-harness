@@ -47,13 +47,20 @@ func (p *PromptMiddleware) Pre(
 		return messages, nil
 	}
 	active := p.manager.Active()
-	sections := make([]string, 0, len(active))
+	pending := p.manager.Pending()
+	sections := make([]string, 0, len(active)+len(pending))
 	for _, sk := range active {
 		instr := sk.Instructions()
 		if instr == "" {
 			continue
 		}
 		sections = append(sections, "## "+AutoName(sk)+"\n"+instr)
+	}
+	for _, sk := range pending {
+		name := AutoName(sk)
+		sections = append(sections,
+			"## "+name+"\n"+sk.Description()+
+				"\n\n_Not loaded — call `load_skill('"+name+"')` to activate._")
 	}
 	if len(sections) == 0 {
 		return messages, nil

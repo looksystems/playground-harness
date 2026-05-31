@@ -27,6 +27,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -37,6 +38,10 @@ import (
 	"agent-harness/go/shell"
 	"agent-harness/go/tools"
 )
+
+// loaderToolName is the name of the tool registered on the agent while at
+// least one progressive skill is pending activation.
+const loaderToolName = "load_skill"
 
 // AgentAPI is the narrow surface SkillManager needs from its owning agent.
 // Declared in this package (not agent) to keep the dependency arrow
@@ -71,6 +76,18 @@ type Manager struct {
 	agent    AgentAPI
 	mounted  map[string]*mountedSkill
 	ordering []string // mount order, for teardown in reverse
+
+	// Progressive skills registered but not yet activated.
+	pending      map[string]*pendingSkill
+	pendingOrder []string // registration order, for stable prompt rendering
+	loaderActive bool     // whether the load_skill tool is currently registered
+}
+
+// pendingSkill holds a progressive skill awaiting activation along with the
+// per-mount config captured at register time.
+type pendingSkill struct {
+	skill  Skill
+	config map[string]any
 }
 
 // mountedSkill tracks the skill and contribution bookkeeping needed for a
@@ -100,6 +117,7 @@ func NewManager(agent AgentAPI) *Manager {
 		agent:    agent,
 		mounted:  make(map[string]*mountedSkill),
 		ordering: nil,
+		pending:  make(map[string]*pendingSkill),
 	}
 }
 
@@ -115,6 +133,21 @@ func (m *Manager) Mount(ctx context.Context, s Skill, config map[string]any) err
 		return errors.New("skills.Manager.Mount: skill is nil")
 	}
 
+	// Progressive skills are registered (deferred) — only their discovery
+	// metadata is wired up and the load_skill tool is ensured. Their
+	// dependencies are resolved at activation time, not here.
+	if isProgressive(s) {
+		name := AutoName(s)
+		m.mu.RLock()
+		_, mounted := m.mounted[name]
+		_, pend := m.pending[name]
+		m.mu.RUnlock()
+		if mounted || pend {
+			return nil
+		}
+		return m.registerDeferred(s, name, config)
+	}
+
 	// Resolve dependency order with cycle detection. Order is dep-first
 	// so each skill mounts after its own dependencies.
 	ordered, err := m.resolveDeps(s)
@@ -127,8 +160,9 @@ func (m *Manager) Mount(ctx context.Context, s Skill, config map[string]any) err
 
 		m.mu.RLock()
 		_, already := m.mounted[name]
+		_, pend := m.pending[name]
 		m.mu.RUnlock()
-		if already {
+		if already || pend {
 			continue
 		}
 
@@ -137,6 +171,12 @@ func (m *Manager) Mount(ctx context.Context, s Skill, config map[string]any) err
 		var cfg map[string]any
 		if sk == s {
 			cfg = config
+		}
+		if isProgressive(sk) {
+			if err := m.registerDeferred(sk, name, cfg); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := m.mountSingle(ctx, sk, name, cfg); err != nil {
 			return err
@@ -209,6 +249,166 @@ func (m *Manager) mountSingle(ctx context.Context, s Skill, name string, cfg map
 	m.agent.EmitHook(ctx, hooks.SkillSetup, name)
 	m.agent.EmitHook(ctx, hooks.SkillMount, name)
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Progressive (two-phase) loading
+// ---------------------------------------------------------------------------
+
+// registerDeferred records a progressive skill without wiring any
+// contributions, and ensures the load_skill loader tool is registered.
+// A progressive skill must carry a non-empty Description — it is all the
+// model sees before activation.
+func (m *Manager) registerDeferred(s Skill, name string, config map[string]any) error {
+	if s.Description() == "" {
+		return fmt.Errorf("skills.Manager: progressive skill %q must have a non-empty description", name)
+	}
+	m.mu.Lock()
+	m.pending[name] = &pendingSkill{skill: s, config: config}
+	m.pendingOrder = append(m.pendingOrder, name)
+	m.mu.Unlock()
+
+	m.ensureLoaderTool()
+	return nil
+}
+
+// activate runs the normal mount path for a pending progressive skill (and
+// its dependencies), returning the activated skill's instructions so the body
+// lands in context for the current turn. Idempotent: activating an
+// already-loaded skill simply returns its instructions. Once no progressive
+// skill remains pending, the loader tool is unregistered.
+func (m *Manager) activate(ctx context.Context, name string) (string, error) {
+	m.mu.RLock()
+	if ms, ok := m.mounted[name]; ok {
+		m.mu.RUnlock()
+		return ms.skill.Instructions(), nil
+	}
+	ps, ok := m.pending[name]
+	m.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("skills.Manager: no pending progressive skill named %q", name)
+	}
+
+	skill := ps.skill
+	ordered, err := m.resolveDeps(skill)
+	if err != nil {
+		return "", err
+	}
+
+	for _, sk := range ordered {
+		dname := AutoName(sk)
+
+		m.mu.RLock()
+		_, already := m.mounted[dname]
+		dps, isPending := m.pending[dname]
+		m.mu.RUnlock()
+		if already {
+			continue
+		}
+
+		var cfg map[string]any
+		if sk == skill {
+			cfg = ps.config
+		} else if isPending {
+			cfg = dps.config
+		}
+
+		if err := m.mountSingle(ctx, sk, dname, cfg); err != nil {
+			return "", err
+		}
+		m.removePending(dname)
+	}
+
+	m.maybeUnregisterLoader()
+	return skill.Instructions(), nil
+}
+
+// removePending drops name from the pending map and ordering slice.
+func (m *Manager) removePending(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.pending[name]; !ok {
+		return
+	}
+	delete(m.pending, name)
+	for i, n := range m.pendingOrder {
+		if n == name {
+			m.pendingOrder = append(m.pendingOrder[:i], m.pendingOrder[i+1:]...)
+			break
+		}
+	}
+}
+
+// buildLoaderTool returns the load_skill tool definition. Its Execute decodes
+// {"name": "..."} and activates that progressive skill, returning its body.
+func (m *Manager) buildLoaderTool() tools.Def {
+	return tools.Def{
+		Name: loaderToolName,
+		Description: "Load (activate) a progressive skill by name. Activating a skill " +
+			"registers its tools and surfaces its full instructions. Pass the " +
+			"skill name exactly as shown in the Available Skills list.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Name of the progressive skill to activate.",
+				},
+			},
+			"required": []string{"name"},
+		},
+		Execute: func(ctx context.Context, args []byte) (any, error) {
+			var p struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(args, &p); err != nil {
+				return nil, fmt.Errorf("skills.load_skill: decode args: %w", err)
+			}
+			return m.activate(ctx, p.Name)
+		},
+	}
+}
+
+// ensureLoaderTool registers the load_skill tool once, idempotently.
+func (m *Manager) ensureLoaderTool() {
+	m.mu.Lock()
+	if m.loaderActive {
+		m.mu.Unlock()
+		return
+	}
+	m.loaderActive = true
+	m.mu.Unlock()
+	m.agent.Register(m.buildLoaderTool())
+}
+
+// maybeUnregisterLoader removes the load_skill tool once nothing is pending.
+func (m *Manager) maybeUnregisterLoader() {
+	m.mu.Lock()
+	if len(m.pending) > 0 {
+		m.mu.Unlock()
+		return
+	}
+	was := m.loaderActive
+	m.loaderActive = false
+	m.mu.Unlock()
+	if was {
+		m.agent.Unregister(loaderToolName)
+	}
+}
+
+// Pending returns the pending (registered but not activated) progressive
+// skills in registration order. Used by PromptMiddleware to render discovery
+// metadata.
+func (m *Manager) Pending() []Skill {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Skill, 0, len(m.pendingOrder))
+	for _, name := range m.pendingOrder {
+		if ps, ok := m.pending[name]; ok {
+			out = append(out, ps.skill)
+		}
+	}
+	return out
 }
 
 // Mounted returns the names of currently mounted skills in mount order.
@@ -312,6 +512,13 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 			log.Printf("skills.Manager: shutdown unmount %q: %v", names[i], err)
 		}
 	}
+
+	// Drop any still-pending progressive skills and remove the loader tool.
+	m.mu.Lock()
+	m.pending = make(map[string]*pendingSkill)
+	m.pendingOrder = nil
+	m.mu.Unlock()
+	m.maybeUnregisterLoader()
 	return nil
 }
 

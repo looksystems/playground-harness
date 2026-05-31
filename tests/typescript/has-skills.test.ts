@@ -717,4 +717,147 @@ describe("HasSkills", () => {
       expect(skill.commands()).toEqual({});
     });
   });
+
+  // -----------------------------------------------------------------------
+  // 10. Progressive (lazy-loaded) skills
+  // -----------------------------------------------------------------------
+  describe("Progressive skills", () => {
+    class ProgressiveSkill extends Skill {
+      description = "A progressive skill that does things on demand";
+      instructions = "Detailed instructions only available once loaded";
+      progressive = true;
+
+      tools(): ToolDef[] {
+        return [
+          {
+            name: "prog_tool",
+            description: "A progressive tool",
+            execute: () => "prog-result",
+            parameters: { type: "object", properties: {} },
+          },
+        ];
+      }
+    }
+
+    class EmptyDescProgressiveSkill extends Skill {
+      progressive = true;
+    }
+
+    it("default progressive flag is false", () => {
+      expect(new WebBrowsingSkill().progressive).toBe(false);
+    });
+
+    it("progressive flag is true on a progressive skill", () => {
+      expect(new ProgressiveSkill().progressive).toBe(true);
+    });
+
+    it("prompt shows description but not instructions before load", async () => {
+      const agent = new FullSkillAgent();
+      await agent.mount(new ProgressiveSkill());
+      const result = await agent.runPre(
+        [{ role: "system", content: "Base" }],
+        {}
+      );
+      const system = result.find((m: any) => m.role === "system");
+      expect(system!.content).toContain(
+        "A progressive skill that does things on demand"
+      );
+      expect(system!.content).not.toContain(
+        "Detailed instructions only available once loaded"
+      );
+      expect(system!.content).toContain("load_skill");
+    });
+
+    it("tools are not registered until activation", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      expect(agent.tools.has("prog_tool")).toBe(false);
+    });
+
+    it("skill is not in skills map until loaded", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      expect(agent.skills.has("progressive")).toBe(false);
+    });
+
+    it("load_skill tool is registered while a progressive skill is pending", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      expect(agent.tools.has("load_skill")).toBe(true);
+    });
+
+    it("load_skill tool is removed once nothing is pending", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      expect(agent.tools.has("load_skill")).toBe(true);
+      await agent.tools.get("load_skill")!.execute({ name: "progressive" });
+      expect(agent.tools.has("load_skill")).toBe(false);
+    });
+
+    it("load_skill activates tools and returns the body", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      const body = await agent.tools
+        .get("load_skill")!
+        .execute({ name: "progressive" });
+      expect(body).toContain(
+        "Detailed instructions only available once loaded"
+      );
+      expect(agent.tools.has("prog_tool")).toBe(true);
+      expect(agent.skills.has("progressive")).toBe(true);
+    });
+
+    it("load_skill switches the prompt to full instructions", async () => {
+      const agent = new FullSkillAgent();
+      await agent.mount(new ProgressiveSkill());
+      await agent.tools.get("load_skill")!.execute({ name: "progressive" });
+      const result = await agent.runPre(
+        [{ role: "system", content: "Base" }],
+        {}
+      );
+      const system = result.find((m: any) => m.role === "system");
+      expect(system!.content).toContain(
+        "Detailed instructions only available once loaded"
+      );
+    });
+
+    it("load_skill is idempotent", async () => {
+      const agent = new SkillsToolsAgent();
+      await agent.mount(new ProgressiveSkill());
+      const load = agent.tools.get("load_skill")!.execute;
+      const body1 = await load({ name: "progressive" });
+      const body2 = await load({ name: "progressive" });
+      expect(body1).toBe(body2);
+      expect(body2).toContain(
+        "Detailed instructions only available once loaded"
+      );
+    });
+
+    it("rejects a progressive skill with an empty description", async () => {
+      const agent = new SkillsToolsAgent();
+      await expect(
+        agent.mount(new EmptyDescProgressiveSkill())
+      ).rejects.toThrow();
+    });
+
+    it("emits no SKILL_SETUP/SKILL_MOUNT until activation", async () => {
+      const agent = new HookSkillsAgent();
+      const events: string[] = [];
+      agent.on(HookEvent.SKILL_SETUP, (name: string) =>
+        events.push(`setup:${name}`)
+      );
+      agent.on(HookEvent.SKILL_MOUNT, (name: string) =>
+        events.push(`mount:${name}`)
+      );
+
+      await agent.mount(new ProgressiveSkill());
+      await new Promise((r) => setTimeout(r, 0));
+      expect(events).toEqual([]);
+
+      await agent.tools.get("load_skill")!.execute({ name: "progressive" });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(events).toContain("setup:progressive");
+      expect(events).toContain("mount:progressive");
+    });
+  });
 });

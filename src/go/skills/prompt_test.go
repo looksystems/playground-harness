@@ -151,3 +151,34 @@ func TestPrompt_PostIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, msg, out)
 }
+
+// ---------------------------------------------------------------------------
+// Progressive (pending) skills render discovery metadata, not instructions
+// ---------------------------------------------------------------------------
+
+func TestPrompt_PendingProgressive_ShowsDescriptionNotInstructions(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+
+	mw := skills.NewPromptMiddleware(m)
+	out, err := mw.Pre(context.Background(), []middleware.Message{{Role: "system", Content: "sys"}}, nil)
+	require.NoError(t, err)
+	content := out[0].Content
+	assert.Contains(t, content, "## prog\nA progressive skill on demand")
+	assert.NotContains(t, content, "Detailed body only after load")
+	assert.Contains(t, content, "load_skill('prog')")
+}
+
+func TestPrompt_ActivatedProgressive_ShowsFullInstructions(t *testing.T) {
+	fa := newFakeAgent()
+	m := skills.NewManager(fa)
+	require.NoError(t, m.Mount(context.Background(), progSkill{}, nil))
+	_, err := fa.tools["load_skill"].Execute(context.Background(), []byte(`{"name":"prog"}`))
+	require.NoError(t, err)
+
+	mw := skills.NewPromptMiddleware(m)
+	out, err := mw.Pre(context.Background(), []middleware.Message{{Role: "system", Content: "sys"}}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, out[0].Content, "## prog\nDetailed body only after load")
+}

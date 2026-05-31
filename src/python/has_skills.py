@@ -73,6 +73,17 @@ class Skill(ABC):
         return ""
 
     @property
+    def progressive(self) -> bool:
+        """When True, the skill is lazily loaded.
+
+        A progressive skill is *registered* at mount time (only its name +
+        description enter the system prompt) and *activated* on demand via the
+        ``load_skill`` tool, at which point its instructions, tools, middleware,
+        hooks and commands are wired up. Defaults to False (eager).
+        """
+        return False
+
+    @property
     def dependencies(self) -> Sequence[type[Skill]]:
         return ()
 
@@ -114,16 +125,29 @@ class Skill(ABC):
 # ---------------------------------------------------------------------------
 
 class SkillPromptMiddleware(BaseMiddleware):
-    """Injects skill instructions into the system prompt."""
+    """Injects skill discovery/instructions into the system prompt.
 
-    def __init__(self, skills: list[Skill]) -> None:
+    Two groups are rendered:
+
+    * **loaded** skills (eager + activated) render their full ``instructions``.
+    * **pending** progressive skills render only ``## {name}\\n{description}``
+      plus a hint that the model must call ``load_skill('{name}')`` to use them.
+    """
+
+    def __init__(self, skills: list[Skill], pending: list[Skill] | None = None) -> None:
         self._skills = skills
+        self._pending = pending or []
 
     async def pre(self, messages: list[dict], context: Any) -> list[dict]:
         sections: list[str] = []
         for sk in self._skills:
             if sk.instructions:
                 sections.append(f"## {sk.name}\n{sk.instructions}")
+        for sk in self._pending:
+            sections.append(
+                f"## {sk.name}\n{sk.description}\n\n"
+                f"_Not loaded — call `load_skill('{sk.name}')` to activate._"
+            )
 
         if not sections:
             return messages
@@ -153,11 +177,19 @@ class SkillPromptMiddleware(BaseMiddleware):
 class SkillManager:
     """Manages skill lifecycle on behalf of an agent."""
 
+    LOADER_TOOL_NAME = "load_skill"
+
     def __init__(self, agent: Any) -> None:
         self._agent = agent
         self._skills: dict[str, Skill] = {}
         self._mounted_order: list[str] = []
         self._prompt_mw: SkillPromptMiddleware | None = None
+
+        # Progressive (deferred) skills awaiting activation: name -> skill,
+        # plus the per-mount config captured at register time.
+        self._pending: dict[str, Skill] = {}
+        self._pending_config: dict[str, dict[str, Any] | None] = {}
+        self._loader_registered = False
 
         # Track contributions per skill for clean unmount.
         self._skill_tools: dict[str, list[str]] = {}
@@ -171,13 +203,34 @@ class SkillManager:
     def skills(self) -> dict[str, Skill]:
         return dict(self._skills)
 
+    @property
+    def pending(self) -> dict[str, Skill]:
+        """Progressive skills registered but not yet activated."""
+        return dict(self._pending)
+
     async def mount(self, skill: Skill, config: dict[str, Any] | None = None) -> None:
-        """Mount *skill* (and its dependencies) onto the agent."""
+        """Mount *skill* (and its dependencies) onto the agent.
+
+        Progressive skills are *registered* (deferred) — only their discovery
+        metadata is wired up and the ``load_skill`` loader tool is ensured.
+        Dependencies of a progressive skill are resolved at activation time,
+        not here. Eager skills mount exactly as before.
+        """
+        if skill.progressive:
+            if skill.name in self._skills or skill.name in self._pending:
+                return
+            self._register_deferred(skill, config)
+            return
+
         resolved = self._resolve_deps(skill)
         for sk in resolved:
-            if sk.name in self._skills:
+            if sk.name in self._skills or sk.name in self._pending:
                 continue
-            await self._mount_single(sk, config if sk is skill else None)
+            cfg = config if sk is skill else None
+            if sk.progressive:
+                self._register_deferred(sk, cfg)
+            else:
+                await self._mount_single(sk, cfg)
 
     async def unmount(self, skill_name: str) -> None:
         """Unmount a previously-mounted skill by name."""
@@ -232,6 +285,9 @@ class SkillManager:
                     logger.warning("Skill %r teardown error: %s", name, exc)
         self._skills.clear()
         self._mounted_order.clear()
+        self._pending.clear()
+        self._pending_config.clear()
+        self._maybe_unregister_loader()
         self._skill_tools.clear()
         self._skill_middleware.clear()
         self._skill_hooks.clear()
@@ -289,6 +345,86 @@ class SkillManager:
 
         self._rebuild_prompt_middleware()
 
+    # -- progressive (two-phase) -------------------------------------------
+
+    def _register_deferred(self, skill: Skill, config: dict[str, Any] | None) -> None:
+        """Phase 1: register a progressive skill without wiring contributions."""
+        if not skill.description:
+            raise ValueError(
+                f"Progressive skill {skill.name!r} must have a non-empty description"
+            )
+        self._pending[skill.name] = skill
+        self._pending_config[skill.name] = config
+        self._ensure_loader_tool()
+        self._rebuild_prompt_middleware()
+
+    async def _activate(self, name: str) -> str:
+        """Phase 2: activate a pending progressive skill, returning its body.
+
+        Idempotent: activating an already-loaded skill simply returns its
+        instructions. Resolves and mounts the skill's dependencies via the
+        normal eager path, emits SKILL_SETUP/SKILL_MOUNT, and unregisters the
+        loader tool once no progressive skill remains pending.
+        """
+        if name in self._skills:
+            return self._skills[name].instructions
+
+        skill = self._pending.get(name)
+        if skill is None:
+            raise ValueError(f"No pending progressive skill named {name!r}")
+
+        for sk in self._resolve_deps(skill):
+            if sk.name in self._skills:
+                continue
+            cfg = self._pending_config.get(sk.name)
+            await self._mount_single(sk, cfg)
+            self._pending.pop(sk.name, None)
+            self._pending_config.pop(sk.name, None)
+            emit_fire_and_forget(self._agent, HookEvent.SKILL_SETUP, sk.name)
+            emit_fire_and_forget(self._agent, HookEvent.SKILL_MOUNT, sk.name)
+
+        self._maybe_unregister_loader()
+        return skill.instructions
+
+    def _build_loader_tool(self) -> ToolDef:
+        async def _load(name: str) -> str:
+            return await self._activate(name)
+
+        return ToolDef(
+            name=self.LOADER_TOOL_NAME,
+            description=(
+                "Load (activate) a progressive skill by name. Activating a skill "
+                "registers its tools and surfaces its full instructions. Pass the "
+                "skill name exactly as shown in the Available Skills list."
+            ),
+            function=_load,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the progressive skill to activate.",
+                    },
+                },
+                "required": ["name"],
+            },
+        )
+
+    def _ensure_loader_tool(self) -> None:
+        if self._loader_registered:
+            return
+        if not hasattr(self._agent, "register_tool"):
+            return
+        self._agent.register_tool(self._build_loader_tool())
+        self._loader_registered = True
+
+    def _maybe_unregister_loader(self) -> None:
+        if self._pending:
+            return
+        if self._loader_registered and hasattr(self._agent, "unregister_tool"):
+            self._agent.unregister_tool(self.LOADER_TOOL_NAME)
+        self._loader_registered = False
+
     def _resolve_deps(self, skill: Skill) -> list[Skill]:
         """Topological sort of *skill* and its transitive dependencies.
 
@@ -319,9 +455,10 @@ class SkillManager:
         if self._prompt_mw is not None and hasattr(self._agent, "remove_middleware"):
             self._agent.remove_middleware(self._prompt_mw)
 
-        active = [self._skills[n] for n in self._mounted_order if n in self._skills]
-        if active:
-            self._prompt_mw = SkillPromptMiddleware(active)
+        loaded = [self._skills[n] for n in self._mounted_order if n in self._skills]
+        pending = list(self._pending.values())
+        if loaded or pending:
+            self._prompt_mw = SkillPromptMiddleware(loaded, pending)
             if hasattr(self._agent, "_prepend_middleware"):
                 self._agent._prepend_middleware(self._prompt_mw)
             else:
@@ -347,11 +484,17 @@ class HasSkills:
         return self._skill_manager.skills
 
     async def mount(self, skill: Skill, config: dict[str, Any] | None = None) -> Self:
-        """Mount a skill onto this agent."""
+        """Mount a skill onto this agent.
+
+        Eager skills emit SKILL_SETUP/SKILL_MOUNT here. Progressive skills are
+        merely registered — they emit those events from the manager when
+        activated via ``load_skill``.
+        """
         self._ensure_has_skills()
         await self._skill_manager.mount(skill, config)
-        emit_fire_and_forget(self, HookEvent.SKILL_SETUP, skill.name)
-        emit_fire_and_forget(self, HookEvent.SKILL_MOUNT, skill.name)
+        if not skill.progressive:
+            emit_fire_and_forget(self, HookEvent.SKILL_SETUP, skill.name)
+            emit_fire_and_forget(self, HookEvent.SKILL_MOUNT, skill.name)
         return self
 
     async def unmount(self, name: str) -> Self:

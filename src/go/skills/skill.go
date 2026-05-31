@@ -97,6 +97,25 @@ type CommandsContributor interface {
 	Commands() map[string]shell.CmdHandler
 }
 
+// Progressive marks a skill as lazily loaded. A skill whose Progressive()
+// returns true is *registered* at mount time — only its name + description
+// enter the system prompt — and *activated* on demand via the load_skill
+// tool, at which point its instructions, tools, middleware, hooks and
+// commands are wired up.
+//
+// Like the other capability interfaces, this is type-asserted at mount time
+// rather than widening the required Skill interface (ADR 0031). A skill that
+// does not implement it (or returns false) is eager, exactly as before.
+type Progressive interface {
+	Progressive() bool
+}
+
+// isProgressive reports whether s opts into progressive (lazy) loading.
+func isProgressive(s Skill) bool {
+	p, ok := s.(Progressive)
+	return ok && p.Progressive()
+}
+
 // ---------------------------------------------------------------------------
 // SkillContext
 // ---------------------------------------------------------------------------

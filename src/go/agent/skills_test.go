@@ -227,6 +227,64 @@ func TestAgent_SatisfiesSkillHost(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Progressive (lazy-loaded) skill end-to-end through the agent
+// ---------------------------------------------------------------------------
+
+// lazySkill is a progressive skill: registered with discovery metadata at
+// build time, activated on demand via the load_skill tool.
+type lazySkill struct {
+	skills.Base
+}
+
+func (lazySkill) Name() string         { return "lazy" }
+func (lazySkill) Description() string  { return "A lazily-loaded skill" }
+func (lazySkill) Instructions() string { return "Lazy instructions revealed on load" }
+func (lazySkill) Progressive() bool    { return true }
+
+func (lazySkill) Tools() []tools.Def {
+	return []tools.Def{{
+		Name:        "lazy_tool",
+		Description: "a lazily-registered tool",
+		Parameters:  map[string]any{"type": "object"},
+		Execute:     func(_ context.Context, _ []byte) (any, error) { return "lazy-ok", nil },
+	}}
+}
+
+func TestBuilder_Skill_Progressive_LazyLoad(t *testing.T) {
+	a, err := NewBuilder("m").
+		Client(newFakeClient()).
+		Streaming(false).
+		Skill(echoSkill{}, nil).
+		Skill(lazySkill{}, nil).
+		Build(context.Background())
+	require.NoError(t, err)
+
+	// Eager echo is mounted; lazy is registered but not yet mounted.
+	assert.Contains(t, a.Skills.Mounted(), "echo")
+	assert.NotContains(t, a.Skills.Mounted(), "lazy")
+
+	// The loader tool is available; the lazy skill's own tool is not.
+	_, ok := a.Get("load_skill")
+	assert.True(t, ok, "loader tool should be registered while a progressive skill is pending")
+	_, ok = a.Get("lazy_tool")
+	assert.False(t, ok, "progressive tool must not be registered before activation")
+
+	// Drive the loader tool exactly as the run loop would.
+	out, err := a.Execute(context.Background(), "load_skill", []byte(`{"name":"lazy"}`))
+	require.NoError(t, err)
+	body, ok := out.(string)
+	require.True(t, ok)
+	assert.Contains(t, body, "Lazy instructions revealed on load")
+
+	// Now lazy is mounted, its tool registered, and the loader is gone.
+	assert.Contains(t, a.Skills.Mounted(), "lazy")
+	_, ok = a.Get("lazy_tool")
+	assert.True(t, ok)
+	_, ok = a.Get("load_skill")
+	assert.False(t, ok)
+}
+
+// ---------------------------------------------------------------------------
 // Skill hook emission reaches the agent's hub
 // ---------------------------------------------------------------------------
 

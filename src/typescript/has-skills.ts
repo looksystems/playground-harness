@@ -17,6 +17,12 @@ export abstract class Skill {
   readonly description: string = "";
   readonly version: string = "0.1.0";
   readonly instructions: string = "";
+  /**
+   * When true, the skill is lazily loaded: registering it only injects its
+   * name + description into the prompt; its instructions, tools, middleware,
+   * hooks and commands are wired up on demand via the `load_skill` tool.
+   */
+  readonly progressive: boolean = false;
   readonly dependencies: Constructor<Skill>[] = [];
   context: SkillContext | null = null;
 
@@ -41,25 +47,41 @@ export abstract class Skill {
 
 export class SkillPromptMiddleware implements Middleware {
   private skills: Skill[];
+  private pending: Skill[];
 
-  constructor(skills: Skill[]) {
+  /**
+   * @param skills loaded skills (eager + activated) — render full instructions.
+   * @param pending pending progressive skills — render name + description plus
+   *   a hint to call `load_skill('{name}')`.
+   */
+  constructor(skills: Skill[], pending: Skill[] = []) {
     this.skills = skills;
+    this.pending = pending;
   }
 
   pre(
     messages: Record<string, any>[],
     _context: any
   ): Record<string, any>[] {
-    const skillsWithInstructions = this.skills.filter(
-      (s) => s.instructions && s.instructions.length > 0
-    );
-    if (skillsWithInstructions.length === 0) {
+    const sections: string[] = [];
+    for (const skill of this.skills) {
+      if (skill.instructions && skill.instructions.length > 0) {
+        sections.push(`## ${skill.name}\n${skill.instructions}`);
+      }
+    }
+    for (const skill of this.pending) {
+      sections.push(
+        `## ${skill.name}\n${skill.description}\n\n` +
+          `_Not loaded — call \`load_skill('${skill.name}')\` to activate._`
+      );
+    }
+    if (sections.length === 0) {
       return messages;
     }
 
     let block = "\n\n---\n**Available Skills:**";
-    for (const skill of skillsWithInstructions) {
-      block += `\n\n## ${skill.name}\n${skill.instructions}`;
+    for (const section of sections) {
+      block += `\n\n${section}`;
     }
 
     const systemIdx = messages.findIndex((m) => m.role === "system");
@@ -76,6 +98,8 @@ export class SkillPromptMiddleware implements Middleware {
 }
 
 export class SkillManager {
+  static readonly LOADER_TOOL_NAME = "load_skill";
+
   private skills: Map<string, Skill> = new Map();
   private mountOrder: string[] = [];
   private promptMw: SkillPromptMiddleware | null = null;
@@ -85,18 +109,35 @@ export class SkillManager {
   private skillHooks: Map<string, Array<[HookEvent, (...args: any[]) => any]>> = new Map();
   private skillCommands: Map<string, string[]> = new Map();
 
+  // Progressive skills registered but not yet activated.
+  private pendingSkills: Map<string, Skill> = new Map();
+  private pendingConfig: Map<string, Record<string, any> | undefined> = new Map();
+  private loaderRegistered = false;
+
   constructor(agent: any) {
     this.agent = agent;
   }
 
   async mount(skill: Skill, config?: Record<string, any>): Promise<void> {
+    if (skill.progressive) {
+      if (this.skills.has(skill.name) || this.pendingSkills.has(skill.name)) {
+        return;
+      }
+      this.registerDeferred(skill, config);
+      return;
+    }
+
     const resolved = this.resolveDeps(skill);
 
     for (const dep of resolved) {
-      if (this.skills.has(dep.name)) {
+      if (this.skills.has(dep.name) || this.pendingSkills.has(dep.name)) {
         continue;
       }
-      await this.mountSingle(dep, config);
+      if (dep.progressive) {
+        this.registerDeferred(dep, dep === skill ? config : undefined);
+      } else {
+        await this.mountSingle(dep, config);
+      }
     }
   }
 
@@ -160,6 +201,94 @@ export class SkillManager {
     this.rebuildPromptMiddleware();
   }
 
+  // -- progressive (two-phase) -------------------------------------------
+
+  private registerDeferred(skill: Skill, config?: Record<string, any>): void {
+    if (!skill.description || skill.description.length === 0) {
+      throw new Error(
+        `Progressive skill '${skill.name}' must have a non-empty description`
+      );
+    }
+    this.pendingSkills.set(skill.name, skill);
+    this.pendingConfig.set(skill.name, config);
+    this.ensureLoaderTool();
+    this.rebuildPromptMiddleware();
+  }
+
+  /**
+   * Activate a pending progressive skill, returning its instructions body.
+   * Idempotent: activating a loaded skill simply returns its body. Resolves
+   * and mounts the skill's dependencies via the normal eager path, emits
+   * SKILL_SETUP/SKILL_MOUNT, and removes the loader tool once none are pending.
+   */
+  async activate(name: string): Promise<string> {
+    const loaded = this.skills.get(name);
+    if (loaded) {
+      return loaded.instructions;
+    }
+    const skill = this.pendingSkills.get(name);
+    if (!skill) {
+      throw new Error(`No pending progressive skill named '${name}'`);
+    }
+
+    for (const dep of this.resolveDeps(skill)) {
+      if (this.skills.has(dep.name)) {
+        continue;
+      }
+      const cfg = this.pendingConfig.get(dep.name);
+      await this.mountSingle(dep, cfg);
+      this.pendingSkills.delete(dep.name);
+      this.pendingConfig.delete(dep.name);
+      tryEmit(this.agent, HookEvent.SKILL_SETUP, dep.name, dep);
+      tryEmit(this.agent, HookEvent.SKILL_MOUNT, dep.name, dep);
+    }
+
+    this.maybeUnregisterLoader();
+    return skill.instructions;
+  }
+
+  private buildLoaderTool(): ToolDef {
+    return {
+      name: SkillManager.LOADER_TOOL_NAME,
+      description:
+        "Load (activate) a progressive skill by name. Activating a skill " +
+        "registers its tools and surfaces its full instructions. Pass the " +
+        "skill name exactly as shown in the Available Skills list.",
+      execute: (args: Record<string, any>) => this.activate(args.name),
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Name of the progressive skill to activate.",
+          },
+        },
+        required: ["name"],
+      },
+    };
+  }
+
+  private ensureLoaderTool(): void {
+    if (this.loaderRegistered) {
+      return;
+    }
+    if (typeof this.agent.registerTool !== "function") {
+      return;
+    }
+    this.agent.registerTool(this.buildLoaderTool());
+    this.loaderRegistered = true;
+  }
+
+  private maybeUnregisterLoader(): void {
+    if (this.pendingSkills.size > 0) {
+      return;
+    }
+    if (this.loaderRegistered && typeof this.agent.unregisterTool === "function") {
+      this.agent.unregisterTool(SkillManager.LOADER_TOOL_NAME);
+    }
+    this.loaderRegistered = false;
+  }
+
   async unmount(name: string): Promise<void> {
     const skill = this.skills.get(name);
     if (!skill || !skill.context) {
@@ -217,6 +346,9 @@ export class SkillManager {
     }
     this.skills.clear();
     this.mountOrder = [];
+    this.pendingSkills.clear();
+    this.pendingConfig.clear();
+    this.maybeUnregisterLoader();
     this.skillTools.clear();
     this.skillMiddleware.clear();
     this.skillHooks.clear();
@@ -249,9 +381,10 @@ export class SkillManager {
       this.agent.removeMiddleware(this.promptMw);
     }
 
-    if (this.skills.size > 0) {
+    if (this.skills.size > 0 || this.pendingSkills.size > 0) {
       this.promptMw = new SkillPromptMiddleware(
-        Array.from(this.skills.values())
+        Array.from(this.skills.values()),
+        Array.from(this.pendingSkills.values())
       );
       if (typeof this.agent.use === "function") {
         this.agent.use(this.promptMw);
@@ -263,6 +396,10 @@ export class SkillManager {
 
   get mounted(): Map<string, Skill> {
     return new Map(this.skills);
+  }
+
+  get pending(): Map<string, Skill> {
+    return new Map(this.pendingSkills);
   }
 }
 
@@ -279,8 +416,12 @@ export function HasSkills<TBase extends Constructor>(Base: TBase) {
     async mount(skill: Skill, config?: Record<string, any>): Promise<this> {
       this.ensureHasSkills();
       await this.skillManager!.mount(skill, config);
-      tryEmit(this, HookEvent.SKILL_SETUP, skill.name, skill);
-      tryEmit(this, HookEvent.SKILL_MOUNT, skill.name, skill);
+      // Progressive skills emit SKILL_SETUP/SKILL_MOUNT from the manager when
+      // activated; eager skills emit here at mount time.
+      if (!skill.progressive) {
+        tryEmit(this, HookEvent.SKILL_SETUP, skill.name, skill);
+        tryEmit(this, HookEvent.SKILL_MOUNT, skill.name, skill);
+      }
       return this;
     }
 
