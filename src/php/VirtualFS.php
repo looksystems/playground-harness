@@ -64,6 +64,7 @@ class VirtualFS
     public function write(string $path, string $content): void
     {
         $path = self::norm($path);
+        unset($this->lazy[$path]); // a real write supersedes any pending lazy provider
         $this->files[$path] = $content;
         $this->stamp($path);
     }

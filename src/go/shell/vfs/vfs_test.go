@@ -138,6 +138,18 @@ func TestWriteLazyCachesOnSecondRead(t *testing.T) {
 	assert.Equal(t, 1, calls, "provider should only be called once")
 }
 
+func TestWriteSupersedesPendingLazy(t *testing.T) {
+	v := New(nil)
+	require.NoError(t, v.WriteLazy("/p.txt", func() ([]byte, error) {
+		return []byte("lazy"), nil
+	}))
+	require.NoError(t, v.Write("/p.txt", []byte("eager")))
+
+	data, err := v.Read("/p.txt")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("eager"), data, "write must clear the pending lazy provider")
+}
+
 func TestWriteLazyErrorPropagates(t *testing.T) {
 	v := New(nil)
 	providerErr := errors.New("provider failed")
@@ -212,10 +224,10 @@ func TestRemoveLazyFile(t *testing.T) {
 	assert.False(t, v.Exists("/lazy.txt"))
 }
 
-func TestRemoveIdempotent(t *testing.T) {
+func TestRemoveNonexistentErrors(t *testing.T) {
 	v := New(nil)
-	// Should not error on missing path.
-	assert.NoError(t, v.Remove("/does-not-exist.txt"))
+	// Parity with Python/TS/PHP: removing a missing path is an error.
+	assert.ErrorIs(t, v.Remove("/does-not-exist.txt"), fs.ErrNotExist)
 }
 
 // ---------------------------------------------------------------------------

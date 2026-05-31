@@ -73,6 +73,7 @@ Concepts that span every language implementation:
 - [Tools](guides/tools.md) — LLM-callable functions with auto-generated JSON schemas
 - [Exec Tool](guides/exec-tool.md) — auto-registered shell tool the LLM uses to run any virtual-shell command, with an opt-in `Bash` alias
 - [File Tools](guides/file-tools.md) — built-in Read/Write/Edit/Glob/Grep matching Claude Code's surface, over the FilesystemDriver
+- [Virtual Filesystem](guides/virtual-fs.md) — how the in-memory VFS is used and implemented: mounting files, lazy files, per-agent isolation via clone, host-owns sync for external drivers
 - [Middleware](guides/middleware.md) — sequential Pre/Post pipeline around every LLM request
 - [Hooks](guides/hooks.md) — lifecycle events, handler registration, concurrency, panic isolation
 - [Events](guides/events.md) — inline YAML events emitted by the LLM, parser + message bus, streaming fields

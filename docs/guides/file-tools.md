@@ -192,6 +192,7 @@ The set is in-memory only; if your session compacts and the agent forgets it Rea
 ## See also
 
 - [Tools guide](tools.md) — the registration model the file tools sit on
+- [Virtual Filesystem](virtual-fs.md) — how the FS underneath these tools is used and implemented
 - [Virtual Bash reference](virtual-bash-reference.md) — what the shell side of the same FS exposes
 - [ADR 0026 — Shell and Filesystem Driver Contracts](../adr/0026-shell-driver-contracts.md)
 - [ADR 0032 — File Tools](../adr/0032-file-tools.md)

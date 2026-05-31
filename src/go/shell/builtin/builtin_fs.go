@@ -357,10 +357,9 @@ func BuiltinRm(ctx context.Context, env *ExecEnv, args []string, stdin string) s
 			continue
 		}
 		abs := resolvePath(env, a)
-		// Remove is idempotent in the VFS (no-op for missing). Python
-		// relies on FileNotFoundError being raised by fs.remove, but
-		// our VFS Remove returns nil for missing — matches "rm -f"
-		// semantics and Python's swallowed exception.
+		// VFS Remove returns fs.ErrNotExist for a missing path (parity
+		// with Python/TS/PHP). We swallow it here for "rm -f" semantics,
+		// mirroring Python's rm catching FileNotFoundError.
 		_ = env.FS.Remove(abs)
 	}
 	return shell.ExecResult{}

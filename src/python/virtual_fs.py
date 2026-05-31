@@ -34,6 +34,7 @@ class VirtualFS:
 
     def write(self, path: str, content: str | bytes) -> None:
         path = self._norm(path)
+        self._lazy.pop(path, None)  # a real write supersedes any pending lazy provider
         self._files[path] = content
         self._stamp(path)
 

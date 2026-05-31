@@ -91,6 +91,12 @@ class TestVirtualFS:
         assert called
         assert fs.read("/lazy.txt") == "lazy content"
 
+    def test_write_supersedes_pending_lazy(self):
+        fs = VirtualFS()
+        fs.write_lazy("/p.txt", lambda: "lazy")
+        fs.write("/p.txt", "eager")
+        assert fs.read("/p.txt") == "eager"  # write clears the pending provider
+
     def test_init_with_files(self):
         fs = VirtualFS({"/a.txt": "1", "/b.txt": "2"})
         assert fs.read("/a.txt") == "1"

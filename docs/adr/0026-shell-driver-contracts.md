@@ -32,3 +32,12 @@ The contracts are open — users can implement custom drivers (e.g., Docker-back
 - New drivers can be registered at runtime via ShellDriverFactory
 - AgentBuilder gains a `driver(name)` method
 - VFS ownership model: host owns, sync before/after exec for external drivers
+
+## Contract semantics
+
+The method list above left two edge cases unspecified, which let the language ports drift. They are now fixed across all four implementations:
+
+- `remove(path)` **raises** on a missing path (`FileNotFoundError` / `Error` / `RuntimeException` / `fs.ErrNotExist`). `rm -f`-style tolerance is layered on top by the shell's `rm`, not by the driver.
+- `write(path, …)` **supersedes** any pending lazy provider at that path — a subsequent `read` returns the written content, never the stale provider's.
+
+See the [Virtual Filesystem guide](../guides/virtual-fs.md) for the full behavioural reference.

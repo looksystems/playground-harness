@@ -47,6 +47,7 @@ The ultimate aim is for this work to be integrated into an event driven/sourced 
 - [Tools](docs/guides/tools.md) — LLM-callable functions with auto-generated JSON schemas, cross-language registration, and error handling
 - [Exec Tool](docs/guides/exec-tool.md) — Auto-registered shell tool the LLM uses to run any virtual-shell command, with an opt-in `Bash` alias for Claude Code prompt portability
 - [File Tools](docs/guides/file-tools.md) — Built-in Read/Write/Edit/Glob/Grep mirroring Claude Code's surface, over the swappable FilesystemDriver
+- [Virtual Filesystem](docs/guides/virtual-fs.md) — How the in-memory VFS is used and implemented: mounting files, lazy files, per-agent isolation via clone, and host-owns sync for external drivers
 - [Events](docs/guides/events.md) — Inline YAML events emitted by the LLM, parser + message bus, streaming fields
 
 ### Shell Guides

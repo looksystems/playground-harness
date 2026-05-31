@@ -158,6 +158,14 @@ class VirtualFSTest extends TestCase
         $this->assertSame(1, $callCount);
     }
 
+    public function testWriteSupersedesPendingLazy(): void
+    {
+        $fs = new VirtualFS();
+        $fs->writeLazy('/p.txt', fn () => 'lazy');
+        $fs->write('/p.txt', 'eager');
+        $this->assertSame('eager', $fs->read('/p.txt')); // write clears the pending provider
+    }
+
     public function testCloneFs(): void
     {
         $fs = new VirtualFS();

@@ -161,11 +161,18 @@ func (v *VirtualFS) Exists(p string) bool {
 	return v.isDirLocked(p)
 }
 
-// Remove deletes the file at path. No-op if missing; returns nil.
+// Remove deletes the file (or unresolved lazy entry) at path.
+// Returns fs.ErrNotExist if the path is not a file, matching the
+// Python/TS/PHP ports. Shell `rm` swallows this for "rm -f" semantics.
 func (v *VirtualFS) Remove(p string) error {
 	p = norm(p)
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	_, hasFile := v.files[p]
+	_, hasLazy := v.lazy[p]
+	if !hasFile && !hasLazy {
+		return fs.ErrNotExist
+	}
 	delete(v.files, p)
 	delete(v.lazy, p)
 	delete(v.mtimes, p)

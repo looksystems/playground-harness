@@ -115,6 +115,13 @@ describe("VirtualFS", () => {
     expect(called).toBe(1);
   });
 
+  it("write supersedes pending lazy provider", () => {
+    const fs = new VirtualFS();
+    fs.writeLazy("/p.txt", () => "lazy");
+    fs.write("/p.txt", "eager");
+    expect(fs.read("/p.txt")).toBe("eager");
+  });
+
   it("init with files", () => {
     const fs = new VirtualFS({ "/a.txt": "a", "b.txt": "b" });
     expect(fs.read("/a.txt")).toBe("a");
